@@ -259,6 +259,28 @@ function saveLS(key: string, val: unknown) {
 
 /* ===================== message sub-components ================ */
 
+function useTypewriter(text: string, charsPerTick = 4, tickMs = 14) {
+  const [shown, setShown] = useState(0);
+  const prevText = useRef("");
+
+  useEffect(() => {
+    if (text !== prevText.current) {
+      prevText.current = text;
+      setShown(0);
+    }
+  }, [text]);
+
+  useEffect(() => {
+    if (!text || shown >= text.length) return;
+    const id = setTimeout(() => {
+      setShown((s) => Math.min(text.length, s + charsPerTick));
+    }, tickMs);
+    return () => clearTimeout(id);
+  }, [text, shown, charsPerTick, tickMs]);
+
+  return shown >= text.length ? text : text.slice(0, shown);
+}
+
 function ReasoningSection({
   text,
   streaming,
@@ -267,12 +289,17 @@ function ReasoningSection({
   streaming: boolean;
 }) {
   const [open, setOpen] = useState(true);
+  const displayed = useTypewriter(text);
+  const fullyRevealed = displayed.length === text.length;
+
   useEffect(() => {
-    if (!streaming) setOpen(false);
-  }, [streaming]);
+    if (!streaming && fullyRevealed) setOpen(false);
+  }, [streaming, fullyRevealed]);
+
+  const stillRevealing = streaming || !fullyRevealed;
 
   return (
-    <div>
+    <div className="animate-fade-in">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -281,18 +308,16 @@ function ReasoningSection({
         <span className="flex size-4 items-center justify-center">
           <span
             className={`size-1.5 rounded-full bg-muted-foreground ${
-              streaming ? "animate-pulse" : ""
+              stillRevealing ? "animate-pulse" : ""
             }`}
           />
         </span>
         <span
           className={`text-xs font-medium ${
-            streaming
-              ? "animate-pulse text-muted-foreground"
-              : "text-foreground"
+            stillRevealing ? "cot-shimmer" : "text-foreground"
           }`}
         >
-          {streaming ? "Thinking…" : "Thoughts"}
+          {stillRevealing ? "Thinking…" : "Thoughts"}
         </span>
         <Chevron
           className={`text-muted-foreground transition-transform ${
@@ -303,7 +328,10 @@ function ReasoningSection({
       {open && (
         <div className="ml-[7px] mt-2 border-l pl-4">
           <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-            {text}
+            {displayed}
+            {!fullyRevealed && (
+              <span className="ml-0.5 inline-block h-3 w-[2px] translate-y-0.5 animate-pulse bg-muted-foreground align-middle" />
+            )}
           </p>
         </div>
       )}
@@ -378,6 +406,50 @@ function ToolCallRow({
         )}
         {status === "error" && <span className="text-red-500">Failed</span>}
       </span>
+    </div>
+  );
+}
+
+function HotelCardSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="skeleton h-40 w-full" />
+      <div className="space-y-2 p-4 pb-3">
+        <div className="skeleton h-4 w-2/3 rounded" />
+        <div className="skeleton h-3 w-1/2 rounded" />
+        <div className="skeleton h-3 w-1/3 rounded" />
+      </div>
+      <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
+        <div className="skeleton h-3 w-12 rounded" />
+        <div className="skeleton h-6 w-24 rounded-full" />
+      </div>
+    </div>
+  );
+}
+
+function FlightCardSkeleton() {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 space-y-3">
+          <div className="skeleton h-4 w-32 rounded" />
+          <div className="flex items-center gap-3">
+            <div className="space-y-1">
+              <div className="skeleton h-4 w-14 rounded" />
+              <div className="skeleton h-3 w-10 rounded" />
+            </div>
+            <div className="skeleton h-px flex-1" />
+            <div className="space-y-1">
+              <div className="skeleton h-4 w-14 rounded" />
+              <div className="skeleton h-3 w-10 rounded" />
+            </div>
+          </div>
+        </div>
+        <div className="space-y-2 text-right">
+          <div className="skeleton ml-auto h-5 w-20 rounded" />
+          <div className="skeleton ml-auto h-6 w-16 rounded-full" />
+        </div>
+      </div>
     </div>
   );
 }
@@ -578,7 +650,7 @@ function AssistantMessageView({
     msg.toolResult?.hotels?.length ?? msg.toolResult?.flights?.length ?? 0;
 
   return (
-    <div className="space-y-4">
+    <div className="animate-fade-in-up space-y-4">
       {msg.reasoning && (
         <ReasoningSection
           text={msg.reasoning}
@@ -594,37 +666,83 @@ function AssistantMessageView({
         />
       )}
 
+      {msg.toolCall &&
+        !msg.toolResult &&
+        !msg.error &&
+        msg.toolCall.name === "search_hotels" && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="animate-fade-in-up"
+                style={{ animationDelay: `${i * 60}ms` }}
+              >
+                <HotelCardSkeleton />
+              </div>
+            ))}
+          </div>
+        )}
+
+      {msg.toolCall &&
+        !msg.toolResult &&
+        !msg.error &&
+        msg.toolCall.name === "search_flights" && (
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="animate-fade-in-up"
+                style={{ animationDelay: `${i * 70}ms` }}
+              >
+                <FlightCardSkeleton />
+              </div>
+            ))}
+          </div>
+        )}
+
       {msg.toolResult?.hotels && msg.toolResult.hotels.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
-          {msg.toolResult.hotels.map((h) => (
-            <HotelCard
+          {msg.toolResult.hotels.map((h, i) => (
+            <div
               key={h.id}
-              h={h}
-              onOpen={() => onOpenHotel(h)}
-              onAddCart={() => onAddHotelCart(h)}
-              onAddChat={() => onAddHotelChat(h)}
-              inCart={cartIds.has(h.id)}
-              pinned={pinnedIds.has(h.id)}
-            />
+              className="animate-fade-in-up"
+              style={{ animationDelay: `${i * 50}ms` }}
+            >
+              <HotelCard
+                h={h}
+                onOpen={() => onOpenHotel(h)}
+                onAddCart={() => onAddHotelCart(h)}
+                onAddChat={() => onAddHotelChat(h)}
+                inCart={cartIds.has(h.id)}
+                pinned={pinnedIds.has(h.id)}
+              />
+            </div>
           ))}
         </div>
       )}
 
       {msg.toolResult?.flights && msg.toolResult.flights.length > 0 && (
         <div className="space-y-3">
-          {msg.toolResult.flights.map((f) => (
-            <FlightCard
+          {msg.toolResult.flights.map((f, i) => (
+            <div
               key={f.id}
-              f={f}
-              onAdd={() => onAddFlight(f)}
-              inCart={cartIds.has(f.id)}
-            />
+              className="animate-fade-in-up"
+              style={{ animationDelay: `${i * 60}ms` }}
+            >
+              <FlightCard
+                f={f}
+                onAdd={() => onAddFlight(f)}
+                inCart={cartIds.has(f.id)}
+              />
+            </div>
           ))}
         </div>
       )}
 
       {msg.message && (
-        <p className="text-sm leading-relaxed text-foreground">{msg.message}</p>
+        <p className="animate-fade-in whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+          {msg.message}
+        </p>
       )}
 
       {msg.error && (
@@ -662,12 +780,12 @@ function Sheet({
   return (
     <div className="fixed inset-0 z-50">
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 animate-fade-in bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
       <div
         className={`absolute top-0 ${
-          side === "right" ? "right-0" : "left-0"
+          side === "right" ? "right-0 animate-slide-in-right" : "left-0 animate-slide-in-left"
         } flex h-full w-full max-w-md flex-col border bg-background shadow-2xl`}
       >
         <div className="flex items-center justify-between border-b px-4 py-3">
@@ -722,7 +840,7 @@ function HotelDetailModal({
     .join(", ");
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+    <div className="fixed inset-0 z-50 flex animate-slide-in-bottom flex-col bg-background">
       {/* Top bar */}
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur">
         <button
@@ -1117,7 +1235,7 @@ function PinnedChips({
       {pinned.map((h) => (
         <span
           key={h.id}
-          className="flex items-center gap-1.5 rounded-full border bg-muted/50 py-1 pl-3 pr-1 text-xs"
+          className="flex animate-scale-in items-center gap-1.5 rounded-full border bg-muted/50 py-1 pl-3 pr-1 text-xs"
         >
           <span className="max-w-[180px] truncate">{h.name}</span>
           {h.city && (
@@ -1186,6 +1304,17 @@ export default function Home() {
     setPinned((prev) => prev.filter((h) => h.id !== id));
   }
 
+  function askAboutHotel(h: Hotel) {
+    setPinned((prev) =>
+      prev.some((p) => p.id === h.id) ? prev : [...prev, h]
+    );
+    setDetailHotel(null);
+    runChat(
+      `Tell me about ${h.name} — its vibe, what it's known for, who it's best for, and any standout features. Keep it concise.`,
+      [h]
+    );
+  }
+
   const currentChat = useMemo(
     () => chats.find((c) => c.id === currentId) || null,
     [chats, currentId]
@@ -1229,7 +1358,7 @@ export default function Home() {
     if (currentId === id) setCurrentId(null);
   }
 
-  async function runChat(content: string) {
+  async function runChat(content: string, extraPinned: Hotel[] = []) {
     if (!content.trim() || loading) return;
 
     let chatId = currentId;
@@ -1294,16 +1423,23 @@ export default function Home() {
     };
 
     try {
-      const pinnedPayload = pinned.map((h) => ({
-        id: h.id,
-        name: h.name,
-        city: h.city,
-        country: h.country,
-        stars: h.stars,
-        rating: h.rating,
-        reviewCount: h.reviewCount,
-        description: h.description?.slice(0, 400),
-      }));
+      const seen = new Set<string>();
+      const pinnedPayload = [...pinned, ...extraPinned]
+        .filter((h) => {
+          if (seen.has(h.id)) return false;
+          seen.add(h.id);
+          return true;
+        })
+        .map((h) => ({
+          id: h.id,
+          name: h.name,
+          city: h.city,
+          country: h.country,
+          stars: h.stars,
+          rating: h.rating,
+          reviewCount: h.reviewCount,
+          description: h.description?.slice(0, 400),
+        }));
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -1506,7 +1642,10 @@ export default function Home() {
             <div className="space-y-10">
               {messages.map((m) =>
                 m.role === "user" ? (
-                  <div key={m.id} className="flex justify-end">
+                  <div
+                    key={m.id}
+                    className="flex animate-fade-in-up justify-end"
+                  >
                     <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm">
                       {m.content}
                     </div>
@@ -1569,10 +1708,7 @@ export default function Home() {
         hotel={detailHotel}
         onClose={() => setDetailHotel(null)}
         onAddCart={(h) => addHotelToCart(h)}
-        onAddChat={(h) => {
-          pinHotel(h);
-          setDetailHotel(null);
-        }}
+        onAddChat={(h) => askAboutHotel(h)}
         inCart={!!detailHotel && cart.some((c) => c.id === detailHotel.id)}
         pinned={!!detailHotel && pinnedIds.has(detailHotel.id)}
       />
