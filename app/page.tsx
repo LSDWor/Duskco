@@ -618,17 +618,8 @@ function ToolCallRow({
 
 function HotelCardSkeleton() {
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
-      <div className="skeleton h-40 w-full" />
-      <div className="space-y-2 p-4 pb-3">
-        <div className="skeleton h-4 w-2/3 rounded" />
-        <div className="skeleton h-3 w-1/2 rounded" />
-        <div className="skeleton h-3 w-1/3 rounded" />
-      </div>
-      <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
-        <div className="skeleton h-3 w-12 rounded" />
-        <div className="skeleton h-6 w-24 rounded-full" />
-      </div>
+    <div className="flex h-56 flex-col justify-end overflow-hidden rounded-2xl">
+      <div className="skeleton h-full w-full" />
     </div>
   );
 }
@@ -663,102 +654,96 @@ function FlightCardSkeleton() {
 function HotelCard({
   h,
   onOpen,
-  onAddCart,
   onAddChat,
-  inCart,
   pinned,
 }: {
   h: Hotel;
   onOpen: () => void;
-  onAddCart: () => void;
   onAddChat: () => void;
-  inCart: boolean;
   pinned: boolean;
 }) {
   return (
-    <article className="group relative overflow-hidden rounded-xl border bg-card transition hover:shadow-md">
+    <article
+      className="group relative flex h-56 cursor-pointer flex-col justify-end overflow-hidden rounded-2xl transition hover:shadow-lg"
+      onClick={onOpen}
+      style={
+        h.thumbnail
+          ? {
+              backgroundImage: `url(${h.thumbnail})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
+          : { background: "hsl(var(--muted))" }
+      }
+    >
+      {/* Gradient overlay */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent transition group-hover:from-black/85" />
+
+      {/* Top-right: Add to chat */}
       <button
         type="button"
-        onClick={onAddCart}
-        aria-label={inCart ? "Added to cart" : "Add to cart"}
-        disabled={inCart}
-        className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm ring-1 ring-border backdrop-blur transition hover:bg-background disabled:opacity-60"
+        onClick={(e) => {
+          e.stopPropagation();
+          onAddChat();
+        }}
+        disabled={pinned}
+        aria-label={pinned ? "Pinned to chat" : "Add to chat"}
+        className="absolute right-2.5 top-2.5 z-10 flex h-8 items-center gap-1.5 rounded-full bg-white/15 px-2.5 text-[11px] font-medium text-white backdrop-blur transition hover:bg-white/25 disabled:opacity-60"
       >
-        {inCart ? (
-          <Check className="text-green-500" />
+        {pinned ? (
+          <>
+            <Check /> Pinned
+          </>
         ) : (
-          <ShoppingBag />
+          <>
+            <MessageSquarePlus /> Chat
+          </>
         )}
       </button>
 
-      <button
-        type="button"
-        onClick={onOpen}
-        className="block w-full text-left"
-      >
-        {h.thumbnail ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={h.thumbnail}
-            alt={h.name}
-            className="h-40 w-full object-cover transition group-hover:scale-[1.02]"
-          />
-        ) : (
-          <div className="flex h-40 w-full items-center justify-center bg-muted text-xs text-muted-foreground">
-            No image
-          </div>
-        )}
-        <div className="p-4 pb-2">
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="line-clamp-1 flex-1 text-sm font-medium">{h.name}</h3>
-            {typeof h.stars === "number" && h.stars > 0 && (
-              <span className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground">
-                {Array.from({ length: Math.round(h.stars) }).map((_, i) => (
-                  <Star key={i} className="text-amber-400" />
-                ))}
-              </span>
-            )}
-          </div>
-          <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-            {[h.address, h.city, h.country].filter(Boolean).join(", ") || "—"}
-          </p>
-          {typeof h.rating === "number" && (
-            <p className="mt-2 text-xs font-medium">
-              ★ {h.rating.toFixed(1)}
-              {h.reviewCount ? (
-                <span className="ml-1 font-normal text-muted-foreground">
-                  ({h.reviewCount.toLocaleString()} reviews)
-                </span>
-              ) : null}
+      {/* Rating badge top-left */}
+      {typeof h.rating === "number" && (
+        <span className="absolute left-2.5 top-2.5 z-10 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur">
+          ★ {h.rating.toFixed(1)}
+        </span>
+      )}
+
+      {/* Bottom text overlay */}
+      <div className="relative z-10 p-4">
+        <div className="flex items-end justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-white">
+              {h.name}
+            </h3>
+            <p className="mt-1 line-clamp-1 text-xs text-white/70">
+              {[h.city, h.country].filter(Boolean).join(", ") || "—"}
             </p>
+          </div>
+          {typeof h.stars === "number" && h.stars > 0 && (
+            <div className="flex shrink-0 items-center gap-0.5 pb-0.5">
+              {Array.from({ length: Math.round(h.stars) }).map((_, i) => (
+                <Star key={i} className="text-amber-300" />
+              ))}
+            </div>
           )}
         </div>
-      </button>
-      <div className="flex items-center gap-2 border-t px-3 py-2">
-        <button
-          type="button"
-          onClick={onOpen}
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          Details
-        </button>
-        <div className="flex-1" />
-        <button
-          type="button"
-          onClick={onAddChat}
-          disabled={pinned}
-          className="flex items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
-        >
-          {pinned ? (
-            <>
-              <Check className="text-green-500" /> Pinned
-            </>
-          ) : (
-            <>
-              <MessageSquarePlus /> Add to chat
-            </>
-          )}
-        </button>
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen();
+            }}
+            className="rounded-full bg-white/20 px-3 py-1 text-[11px] font-medium text-white backdrop-blur transition hover:bg-white/30"
+          >
+            View rooms →
+          </button>
+          {h.reviewCount ? (
+            <span className="text-[10px] text-white/50">
+              {h.reviewCount.toLocaleString()} reviews
+            </span>
+          ) : null}
+        </div>
       </div>
     </article>
   );
@@ -1156,7 +1141,6 @@ function AssistantMessageView({
   msg,
   cart,
   pinnedIds,
-  onAddHotelCart,
   onAddHotelChat,
   onAddFlight,
   onOpenHotel,
@@ -1164,7 +1148,6 @@ function AssistantMessageView({
   msg: AssistantMessage;
   cart: CartItem[];
   pinnedIds: Set<string>;
-  onAddHotelCart: (h: Hotel) => void;
   onAddHotelChat: (h: Hotel) => void;
   onAddFlight: (f: Flight) => void;
   onOpenHotel: (h: Hotel) => void;
@@ -1255,9 +1238,7 @@ function AssistantMessageView({
               <HotelCard
                 h={h}
                 onOpen={() => onOpenHotel(h)}
-                onAddCart={() => onAddHotelCart(h)}
                 onAddChat={() => onAddHotelChat(h)}
-                inCart={cartIds.has(h.id)}
                 pinned={pinnedIds.has(h.id)}
               />
             </div>
@@ -2761,32 +2742,24 @@ export default function Home() {
         </button>
       </div>
 
-      <header className="flex items-center justify-between py-5 pr-36">
-        <div className="flex items-center gap-2">
+      <header className="flex items-center gap-2 py-5 pr-36">
+        <button
+          type="button"
+          onClick={() => setHistoryOpen(true)}
+          className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="Conversations"
+        >
+          <Menu />
+        </button>
+        {hasMessages && (
           <button
             type="button"
-            onClick={() => setHistoryOpen(true)}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label="Conversations"
+            onClick={() => startNewChat()}
+            className="rounded-full px-3 py-1.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
           >
-            <Menu />
+            New chat
           </button>
-          <div className="h-6 w-6 rounded-md bg-foreground" />
-          <span className="text-sm font-semibold tracking-tight">Duskgo</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {hasMessages && (
-            <button
-              type="button"
-              onClick={() => {
-                startNewChat();
-              }}
-              className="hidden rounded-full px-3 py-1.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground sm:block"
-            >
-              New chat
-            </button>
-          )}
-        </div>
+        )}
       </header>
 
       {!hasMessages && (
@@ -2853,7 +2826,6 @@ export default function Home() {
                     msg={m}
                     cart={cart}
                     pinnedIds={pinnedIds}
-                    onAddHotelCart={addHotelToCart}
                     onAddHotelChat={pinHotel}
                     onAddFlight={addFlightToCart}
                     onOpenHotel={setDetailHotel}
