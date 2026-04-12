@@ -2,8 +2,58 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body {
-  background: #0a0a0a;
-  color: #fff;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+:root {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 3.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 3.9%;
+  --muted: 0 0% 96.1%;
+  --muted-foreground: 0 0% 45.1%;
+  --border: 0 0% 89.8%;
+  --input: 0 0% 96.1%;
+  --primary: 0 0% 9%;
+  --primary-foreground: 0 0% 98%;
+  --ring: 0 0% 9%;
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: 0 0% 0%;
+  --foreground: 0 0% 98%;
+  --card: 0 0% 7.8%;
+  --card-foreground: 0 0% 98%;
+  --muted: 0 0% 14.5%;
+  --muted-foreground: 0 0% 70%;
+  --border: 0 0% 16.5%;
+  --input: 0 0% 20%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 0 0% 9%;
+  --ring: 0 0% 70%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html,
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 7.8%;
+    --card-foreground: 0 0% 98%;
+    --muted: 0 0% 14.5%;
+    --muted-foreground: 0 0% 70%;
+    --border: 0 0% 16.5%;
+    --input: 0 0% 20%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
+    --ring: 0 0% 70%;
+  }
 }
