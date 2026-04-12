@@ -13,12 +13,45 @@ type Parsed = {
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const LITEAPI_URL = "https://api.liteapi.travel/v3.0/data/hotels";
 
-const MODEL = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free";
+const FALLBACK_MODELS = [
+  process.env.OPENROUTER_MODEL,
+  "qwen/qwen3-next-80b-a3b-instruct:free",
+  "openai/gpt-oss-120b:free",
+  "google/gemma-4-31b-it:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "nousresearch/hermes-3-llama-3.1-405b:free",
+].filter(Boolean) as string[];
 
 function todayPlus(days: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+async function callOpenRouter(apiKey: string, model: string, system: string, query: string) {
+  const res = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://duskgo.app",
+      "X-Title": "Duskgo",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: query },
+      ],
+      temperature: 0.1,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OpenRouter ${res.status} (${model}): ${text.slice(0, 200)}`);
+  }
+  const json = await res.json();
+  return (json?.choices?.[0]?.message?.content ?? "") as string;
 }
 
 async function parseQuery(query: string): Promise<Parsed> {
@@ -39,32 +72,19 @@ Rules:
 - If only duration is given, assume check-in 30 days from today.
 - Today's date is ${todayPlus(0)}.`;
 
-  const res = await fetch(OPENROUTER_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://duskgo.app",
-      "X-Title": "Duskgo",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: query },
-      ],
-      temperature: 0.1,
-      response_format: { type: "json_object" },
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenRouter ${res.status}: ${text.slice(0, 300)}`);
+  let content = "";
+  const errors: string[] = [];
+  for (const model of FALLBACK_MODELS) {
+    try {
+      content = await callOpenRouter(apiKey, model, system, query);
+      if (content) break;
+    } catch (e: any) {
+      errors.push(e?.message || String(e));
+    }
   }
-
-  const json = await res.json();
-  const content: string = json?.choices?.[0]?.message?.content ?? "";
+  if (!content) {
+    throw new Error(`All OpenRouter models failed: ${errors.join(" | ")}`);
+  }
 
   let parsed: any;
   try {
