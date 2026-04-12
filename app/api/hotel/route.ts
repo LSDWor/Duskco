@@ -163,6 +163,8 @@ export async function GET(req: Request) {
   const nationality = url.searchParams.get("nationality") || "US";
 
   try {
+    // Details + rates fire in parallel. Weather needs lat/lng from
+    // details so it fires after, but it's fast (~200ms).
     const [detailsRes, ratesRes] = await Promise.allSettled([
       mcpCall("get_data_hotel", { hotelId: id }),
       mcpCall("post_hotels_rates", {
@@ -183,6 +185,31 @@ export async function GET(req: Request) {
     }
 
     const raw = detailsRes.value?.data || detailsRes.value;
+
+    // Fire weather via direct REST (more reliable than MCP for this endpoint).
+    let weatherRes: PromiseSettledResult<any> = {
+      status: "rejected",
+      reason: new Error("No coordinates"),
+    };
+    const lat = raw?.location?.latitude;
+    const lng = raw?.location?.longitude;
+    if (typeof lat === "number" && typeof lng === "number") {
+      const apiKey = process.env.LITEAPI_KEY;
+      const weatherUrl = new URL("https://api.liteapi.travel/v3.0/data/weather");
+      weatherUrl.searchParams.set("latitude", String(lat));
+      weatherUrl.searchParams.set("longitude", String(lng));
+      weatherUrl.searchParams.set("startDate", checkin);
+      weatherUrl.searchParams.set("endDate", checkout);
+      weatherUrl.searchParams.set("units", "metric");
+      weatherRes = await Promise.allSettled([
+        fetch(weatherUrl.toString(), {
+          headers: { "X-API-Key": apiKey!, accept: "application/json" },
+        }).then(async (r) => {
+          if (!r.ok) throw new Error(`Weather ${r.status}`);
+          return r.json();
+        }),
+      ]).then((r) => r[0]);
+    }
     const hotelRooms: any[] = Array.isArray(raw?.rooms) ? raw.rooms : [];
 
     // Amenities (with translated names)
@@ -255,10 +282,48 @@ export async function GET(req: Request) {
       ratesError = ratesRes.reason?.message || "Failed to load rates";
     }
 
+    // --- Weather ---
+    type WeatherDay = {
+      date: string;
+      tempMin?: number;
+      tempMax?: number;
+      tempAfternoon?: number;
+      humidity?: number;
+      cloudCover?: number;
+      precipitation?: number;
+      windSpeed?: number;
+      units: string;
+    };
+    let weather: WeatherDay[] = [];
+    if (weatherRes.status === "fulfilled" && weatherRes.value) {
+      const wd =
+        weatherRes.value?.weatherData ??
+        weatherRes.value?.data ??
+        (Array.isArray(weatherRes.value) ? weatherRes.value : []);
+      weather = (wd as any[])
+        .map((item: any) => {
+          const dw = item?.dailyWeather ?? item;
+          if (!dw?.date) return null;
+          return {
+            date: dw.date,
+            tempMin: dw.temperature?.min,
+            tempMax: dw.temperature?.max,
+            tempAfternoon: dw.temperature?.afternoon,
+            humidity: dw.humidity?.afternoon,
+            cloudCover: dw.cloud_cover?.afternoon,
+            precipitation: dw.precipitation?.total,
+            windSpeed: dw.wind?.max?.speed,
+            units: dw.units || "metric",
+          } as WeatherDay;
+        })
+        .filter(Boolean) as WeatherDay[];
+    }
+
     return NextResponse.json({
       hotel,
       rooms,
       ratesError,
+      weather,
       search: { checkin, checkout, adults, currency },
     });
   } catch (err: any) {

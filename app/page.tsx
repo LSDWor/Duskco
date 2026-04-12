@@ -812,6 +812,70 @@ function FlightCard({
   );
 }
 
+/* weather helper icons */
+function weatherIcon(cloud?: number, precip?: number) {
+  if (precip != null && precip > 5) return "🌧";
+  if (cloud != null && cloud > 70) return "☁️";
+  if (cloud != null && cloud > 30) return "⛅";
+  return "☀️";
+}
+
+function WeatherStrip({ days, units }: { days: WeatherDay[]; units?: string }) {
+  if (days.length === 0) return null;
+  const u = (units || days[0]?.units || "metric") === "metric" ? "°C" : "°F";
+  const fmtDay = (iso: string) => {
+    try {
+      return new Intl.DateTimeFormat("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      }).format(new Date(iso));
+    } catch {
+      return iso;
+    }
+  };
+
+  return (
+    <section className="mt-8 animate-fade-in-up">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        Weather during your stay
+      </h2>
+      <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
+        {days.map((d, i) => (
+          <div
+            key={d.date}
+            className="animate-fade-in-up flex w-28 shrink-0 flex-col items-center rounded-xl border bg-card p-3 text-center"
+            style={{ animationDelay: `${i * 60}ms` }}
+          >
+            <div className="text-[10px] font-medium text-muted-foreground">
+              {fmtDay(d.date)}
+            </div>
+            <div className="my-2 text-2xl leading-none">
+              {weatherIcon(d.cloudCover, d.precipitation)}
+            </div>
+            <div className="text-sm font-semibold tabular-nums">
+              {typeof d.tempMax === "number" ? Math.round(d.tempMax) : "—"}
+              {u}
+            </div>
+            <div className="text-[11px] text-muted-foreground tabular-nums">
+              {typeof d.tempMin === "number" ? Math.round(d.tempMin) : "—"}
+              {u}
+            </div>
+            <div className="mt-1.5 flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+              {typeof d.humidity === "number" && (
+                <span>💧 {Math.round(d.humidity)}%</span>
+              )}
+              {typeof d.windSpeed === "number" && (
+                <span>💨 {d.windSpeed.toFixed(1)} m/s</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ComparisonTable({ rows }: { rows: CompareRow[] }) {
   const valid = rows.filter((r) => !r.error);
   if (valid.length === 0) {
@@ -1220,10 +1284,23 @@ type Room = {
   refundable?: boolean;
 };
 
+type WeatherDay = {
+  date: string;
+  tempMin?: number;
+  tempMax?: number;
+  tempAfternoon?: number;
+  humidity?: number;
+  cloudCover?: number;
+  precipitation?: number;
+  windSpeed?: number;
+  units: string;
+};
+
 type DetailPayload = {
   hotel: HotelDetailsFull;
   rooms: Room[];
   ratesError: string | null;
+  weather: WeatherDay[];
   search: { checkin: string; checkout: string; adults: number; currency: string };
 };
 
@@ -1584,6 +1661,11 @@ function HotelDetailModal({
               </div>
             )}
           </section>
+
+          {/* Weather forecast */}
+          {details?.weather && details.weather.length > 0 && (
+            <WeatherStrip days={details.weather} />
+          )}
 
           {/* Amenities */}
           {h.facilities.length > 0 && (
