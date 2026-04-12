@@ -36,9 +36,30 @@ type Flight = {
   cabin?: string;
 };
 
+type CompareRow = {
+  id: string;
+  name: string;
+  error?: string;
+  address?: string;
+  city?: string;
+  country?: string;
+  stars?: number;
+  rating?: number;
+  reviewCount?: number;
+  thumbnail?: string;
+  hotelType?: string;
+  description?: string;
+  topFacilities: string[];
+  pros: string[];
+  cons: string[];
+  childAllowed?: boolean;
+  petsAllowed?: boolean;
+};
+
 type ToolCall =
   | { name: "search_hotels"; args: { destination: string; countryCode: string } }
   | { name: "get_hotel_details"; args: { hotelId: string } }
+  | { name: "compare_hotels"; args: { hotelIds: string[] } }
   | {
       name: "search_flights";
       args: {
@@ -48,7 +69,8 @@ type ToolCall =
         returnDate?: string;
         adults: number;
       };
-    };
+    }
+  | { name: "respond"; args: { text?: string } };
 
 type UserMessage = { id: string; role: "user"; content: string };
 type AssistantMessage = {
@@ -57,7 +79,12 @@ type AssistantMessage = {
   status: "streaming" | "done" | "error";
   reasoning?: string;
   toolCall?: ToolCall;
-  toolResult?: { hotels?: Hotel[]; hotel?: Hotel; flights?: Flight[] };
+  toolResult?: {
+    hotels?: Hotel[];
+    hotel?: Hotel;
+    flights?: Flight[];
+    comparison?: CompareRow[];
+  };
   message?: string;
   error?: string;
 };
@@ -516,6 +543,24 @@ function ToolCallRow({
         </span>
       </>
     );
+  } else if (call.name === "compare_hotels") {
+    icon = <Bed />;
+    label = (
+      <>
+        <span className="font-medium">compare_hotels</span>
+        <span className="truncate text-muted-foreground">
+          {call.args.hotelIds?.length ?? 0} hotels
+        </span>
+      </>
+    );
+  } else if (call.name === "respond") {
+    icon = <MessageSquarePlus />;
+    label = (
+      <>
+        <span className="font-medium">respond</span>
+        <span className="truncate text-muted-foreground">direct answer</span>
+      </>
+    );
   } else {
     icon = <Plane />;
     label = (
@@ -767,6 +812,173 @@ function FlightCard({
   );
 }
 
+function ComparisonTable({ rows }: { rows: CompareRow[] }) {
+  const valid = rows.filter((r) => !r.error);
+  if (valid.length === 0) {
+    return (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-700 dark:text-amber-300">
+        Couldn't load the hotels to compare.
+      </div>
+    );
+  }
+
+  type Field = { label: string; render: (r: CompareRow) => React.ReactNode };
+  const fields: Field[] = [
+    {
+      label: "Stars",
+      render: (r) =>
+        typeof r.stars === "number" && r.stars > 0 ? (
+          <div className="flex items-center gap-0.5">
+            {Array.from({ length: Math.round(r.stars) }).map((_, i) => (
+              <Star key={i} className="text-amber-400" />
+            ))}
+          </div>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      label: "Guest rating",
+      render: (r) =>
+        typeof r.rating === "number" ? (
+          <div>
+            <div className="text-sm font-semibold">★ {r.rating.toFixed(1)}</div>
+            {r.reviewCount ? (
+              <div className="text-[10px] text-muted-foreground">
+                {r.reviewCount.toLocaleString()} reviews
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      label: "Location",
+      render: (r) =>
+        [r.address, r.city, r.country].filter(Boolean).join(", ") || "—",
+    },
+    { label: "Type", render: (r) => r.hotelType || "—" },
+    {
+      label: "Top amenities",
+      render: (r) =>
+        r.topFacilities.length > 0 ? (
+          <ul className="space-y-0.5">
+            {r.topFacilities.slice(0, 5).map((f, i) => (
+              <li key={i} className="flex gap-1.5">
+                <Check className="mt-0.5 shrink-0 text-muted-foreground" />
+                <span>{f}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      label: "Guests love",
+      render: (r) =>
+        r.pros.length > 0 ? (
+          <ul className="space-y-0.5">
+            {r.pros.map((p, i) => (
+              <li key={i} className="flex gap-1.5">
+                <span className="mt-0.5 shrink-0 text-green-500">+</span>
+                <span>{p}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      label: "Considerations",
+      render: (r) =>
+        r.cons.length > 0 ? (
+          <ul className="space-y-0.5">
+            {r.cons.map((c, i) => (
+              <li key={i} className="flex gap-1.5">
+                <span className="mt-0.5 shrink-0 text-amber-500">!</span>
+                <span>{c}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      label: "Policies",
+      render: (r) => (
+        <div className="space-y-0.5 text-[11px]">
+          <div>Children: {r.childAllowed ? "welcome" : "n/a"}</div>
+          <div>Pets: {r.petsAllowed ? "welcome" : "not allowed"}</div>
+        </div>
+      ),
+    },
+  ];
+
+  const colWidth = 220;
+
+  return (
+    <div className="overflow-x-auto rounded-xl border bg-card">
+      <table className="w-max min-w-full border-collapse text-xs">
+        <thead>
+          <tr className="border-b">
+            <th className="sticky left-0 z-10 w-32 bg-card p-3 text-left align-bottom text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Hotel
+            </th>
+            {valid.map((r) => (
+              <th
+                key={r.id}
+                className="border-l p-3 text-left align-bottom"
+                style={{ width: colWidth, minWidth: colWidth }}
+              >
+                {r.thumbnail ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={r.thumbnail}
+                    alt={r.name}
+                    className="mb-2 h-24 w-full rounded-lg object-cover"
+                  />
+                ) : (
+                  <div className="mb-2 flex h-24 w-full items-center justify-center rounded-lg bg-muted text-[10px] text-muted-foreground">
+                    No image
+                  </div>
+                )}
+                <div className="line-clamp-2 text-sm font-semibold">
+                  {r.name}
+                </div>
+                <div className="line-clamp-1 text-[11px] text-muted-foreground">
+                  {[r.city, r.country].filter(Boolean).join(", ")}
+                </div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {fields.map((field) => (
+            <tr key={field.label} className="border-t">
+              <td className="sticky left-0 z-10 w-32 bg-card p-3 align-top text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {field.label}
+              </td>
+              {valid.map((r) => (
+                <td
+                  key={r.id}
+                  className="border-l p-3 align-top leading-relaxed"
+                  style={{ width: colWidth, minWidth: colWidth }}
+                >
+                  {field.render(r)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function AssistantMessageView({
   msg,
   cart,
@@ -816,17 +1028,24 @@ function AssistantMessageView({
         !msg.toolResult &&
         !msg.error &&
         msg.toolCall.name === "search_hotels" && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {[0, 1, 2, 3].map((i) => (
+          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
               <div
                 key={i}
                 className="animate-fade-in-up"
-                style={{ animationDelay: `${i * 60}ms` }}
+                style={{ animationDelay: `${i * 50}ms` }}
               >
                 <HotelCardSkeleton />
               </div>
             ))}
           </div>
+        )}
+
+      {msg.toolCall &&
+        !msg.toolResult &&
+        !msg.error &&
+        msg.toolCall.name === "compare_hotels" && (
+          <div className="animate-fade-in-up skeleton h-56 rounded-xl" />
         )}
 
       {msg.toolCall &&
@@ -846,13 +1065,19 @@ function AssistantMessageView({
           </div>
         )}
 
+      {msg.toolResult?.comparison && msg.toolResult.comparison.length > 0 && (
+        <div className="animate-fade-in-up">
+          <ComparisonTable rows={msg.toolResult.comparison} />
+        </div>
+      )}
+
       {msg.toolResult?.hotels && msg.toolResult.hotels.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
           {msg.toolResult.hotels.map((h, i) => (
             <div
               key={h.id}
               className="animate-fade-in-up"
-              style={{ animationDelay: `${i * 50}ms` }}
+              style={{ animationDelay: `${i * 40}ms` }}
             >
               <HotelCard
                 h={h}
@@ -1389,45 +1614,73 @@ function HotelDetailModal({
           {(h.checkin || h.checkout || h.importantInformation) && (
             <section className="mt-10 animate-fade-in-up grid gap-4 sm:grid-cols-2">
               {(h.checkin || h.checkout) && (
-                <div className="rounded-xl border bg-card p-4">
+                <div className="rounded-xl border bg-card p-5">
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Check-in / out
+                    Hours & policies
                   </div>
-                  <div className="mt-2 space-y-1 text-xs">
+                  <div className="mt-4 grid grid-cols-2 gap-4">
                     {h.checkin && (
                       <div>
-                        <span className="text-muted-foreground">Check-in:</span>{" "}
-                        {h.checkin}
-                        {h.checkinEnd ? ` – ${h.checkinEnd}` : ""}
+                        <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Check-in
+                        </div>
+                        <div className="mt-1 text-sm font-semibold tabular-nums">
+                          {h.checkin}
+                        </div>
+                        {h.checkinEnd && (
+                          <div className="text-[11px] text-muted-foreground">
+                            until {h.checkinEnd}
+                          </div>
+                        )}
                       </div>
                     )}
                     {h.checkout && (
                       <div>
-                        <span className="text-muted-foreground">Check-out:</span>{" "}
-                        {h.checkout}
-                      </div>
-                    )}
-                    {h.childAllowed != null && (
-                      <div className="text-muted-foreground">
-                        Children: {h.childAllowed ? "welcome" : "not allowed"}
-                      </div>
-                    )}
-                    {h.petsAllowed != null && (
-                      <div className="text-muted-foreground">
-                        Pets: {h.petsAllowed ? "welcome" : "not allowed"}
+                        <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Check-out
+                        </div>
+                        <div className="mt-1 text-sm font-semibold tabular-nums">
+                          {h.checkout}
+                        </div>
                       </div>
                     )}
                   </div>
+                  {(h.childAllowed != null || h.petsAllowed != null) && (
+                    <div className="mt-4 flex flex-wrap gap-1.5 border-t pt-3">
+                      {h.childAllowed != null && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                            h.childAllowed
+                              ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          Children {h.childAllowed ? "welcome" : "not allowed"}
+                        </span>
+                      )}
+                      {h.petsAllowed != null && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                            h.petsAllowed
+                              ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          Pets {h.petsAllowed ? "welcome" : "not allowed"}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               {h.importantInformation && (
-                <div className="rounded-xl border bg-card p-4">
+                <div className="rounded-xl border bg-card p-5">
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Good to know
                   </div>
-                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                    {h.importantInformation}
-                  </p>
+                  <div className="mt-3 space-y-2 text-xs leading-relaxed text-foreground/90 [&>p]:leading-relaxed">
+                    {renderMarkdown(h.importantInformation)}
+                  </div>
                 </div>
               )}
             </section>
@@ -2105,7 +2358,11 @@ export default function Home() {
                     ? { hotels: result }
                     : name === "get_hotel_details"
                     ? { hotel: result, hotels: [result] }
-                    : { flights: result },
+                    : name === "compare_hotels"
+                    ? { comparison: result }
+                    : name === "search_flights"
+                    ? { flights: result }
+                    : {},
               }));
               break;
             }

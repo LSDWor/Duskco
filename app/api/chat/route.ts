@@ -242,6 +242,63 @@ const TOOLS = {
     return String(args?.text ?? "");
   },
 
+  async compare_hotels(args: any) {
+    const ids: string[] = Array.isArray(args?.hotelIds)
+      ? args.hotelIds.slice(0, 5).map(String)
+      : [];
+    if (ids.length < 2) {
+      throw new Error("compare_hotels needs at least 2 hotelIds");
+    }
+    const results = await Promise.allSettled(
+      ids.map((id) => mcpCall("get_data_hotel", { hotelId: id }))
+    );
+    return results.map((r, i) => {
+      if (r.status === "rejected") {
+        return {
+          id: ids[i],
+          name: `Hotel ${ids[i]}`,
+          error: String(r.reason?.message || r.reason).slice(0, 140),
+          topFacilities: [],
+          pros: [],
+          cons: [],
+        };
+      }
+      const raw = r.value?.data || r.value;
+      const desc =
+        typeof raw?.hotelDescription === "string"
+          ? raw.hotelDescription.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 240)
+          : undefined;
+      return {
+        id: String(raw?.id ?? ids[i]),
+        name: raw?.name ?? "Unknown hotel",
+        address: raw?.address ?? undefined,
+        city: raw?.city ?? undefined,
+        country: (raw?.country ?? "").toString().toUpperCase() || undefined,
+        stars: typeof raw?.starRating === "number" ? raw.starRating : undefined,
+        rating: typeof raw?.rating === "number" ? raw.rating : undefined,
+        reviewCount:
+          typeof raw?.reviewCount === "number" ? raw.reviewCount : undefined,
+        thumbnail: raw?.thumbnail ?? raw?.main_photo ?? undefined,
+        hotelType: raw?.hotelType ?? undefined,
+        description: desc,
+        topFacilities: Array.isArray(raw?.facilities)
+          ? raw.facilities
+              .slice(0, 8)
+              .map((f: any) => f?.name || f?.facilityName)
+              .filter(Boolean)
+          : [],
+        pros: Array.isArray(raw?.sentiment_analysis?.pros)
+          ? raw.sentiment_analysis.pros.slice(0, 4)
+          : [],
+        cons: Array.isArray(raw?.sentiment_analysis?.cons)
+          ? raw.sentiment_analysis.cons.slice(0, 4)
+          : [],
+        childAllowed: raw?.childAllowed,
+        petsAllowed: raw?.petsAllowed,
+      };
+    });
+  },
+
   async search_hotels(args: any) {
     const res = await mcpCall("get_data_hotels", {
       cityName: args.destination,
@@ -365,24 +422,29 @@ function buildSystemPrompt(pinned?: PinnedHotel[]) {
 
 Available tools:
 
-1. respond — Answer the user directly with natural-language text. Use this when the user is asking a question, comparing pinned hotels, requesting hotel details they've pinned, seeking advice, or the answer can be composed from conversation context without a fresh data lookup. This is the DEFAULT when the user has pinned hotels and is asking about them.
+1. respond — Answer the user directly with natural-language text. Use this when the user is asking a question, requesting hotel details they've pinned, seeking advice, or the answer can be composed from conversation context without a fresh data lookup. This is the default when the user has pinned hotels and is asking about them (except comparisons — see #2).
    arguments: {
      text: string              // Markdown. Structure answers with short headings or **bold labels**, concise bullet lists (- ...), and 1–2 sentence paragraphs. Always include concrete facts from the pinned context (location, star rating, review score, standout features). Avoid generic filler. For "tell me about <hotel>" prompts, structure as: 1-sentence headline, then bullets covering Vibe, Best for, Standout features, and any caveats from cons.
    }
 
-2. search_hotels — Search hotels in a city. Use when the user asks about hotels, stays, or a place to stay and wants NEW options.
+2. compare_hotels — Build a side-by-side structured comparison of 2–5 hotels. USE THIS (not respond) when the user asks to "compare", "contrast", "side by side", "which is better", "differences", "vs", or similar, AND there are 2+ pinned hotels available. The client renders the result as a real comparison table.
+   arguments: {
+     hotelIds: string[]        // 2–5 hotel IDs drawn from the pinned context (each pinned hotel has an [id:...] tag below)
+   }
+
+3. search_hotels — Search hotels in a city. Use when the user asks about hotels, stays, or a place to stay and wants NEW options.
    arguments: {
      destination: string,       // city name, e.g. "Paris"
      countryCode: string,       // ISO 3166-1 alpha-2, e.g. "FR"
      limit?: integer            // max 20
    }
 
-3. get_hotel_details — Get full details for one hotel by ID. Use only when you need deeper info on a specific hotel and don't already have it from pinned context or prior results.
+4. get_hotel_details — Get full details for one hotel by ID. Use only when you need deeper info on a specific hotel and don't already have it from pinned context or prior results.
    arguments: {
      hotelId: string            // e.g. "lp1beec"
    }
 
-4. search_flights — Search flights between two airports. Use when the user asks about flights, airfare, or getting to a destination.
+5. search_flights — Search flights between two airports. Use when the user asks about flights, airfare, or getting to a destination.
    arguments: {
      origin: string,            // 3-letter IATA airport code, e.g. "JFK"
      destination: string,       // 3-letter IATA airport code, e.g. "CDG"
@@ -397,7 +459,7 @@ Rules:
 - Today is ${todayISO(0)}. If dates are vague ("next month", "in June"), pick sensible concrete future dates.
 - If only duration is given, assume check-in 30 days from today.
 - For flights, YOU must pick the correct 3-letter IATA airport codes — use the most common primary airport for each city (Paris→CDG, New York→JFK, London→LHR, Tokyo→HND, Los Angeles→LAX, Singapore→SIN).
-- If pinned hotels exist and the user is asking about them (compare, which, details, best for X), call "respond" with a direct answer grounded in the pinned facts. Do NOT call search_hotels unless the user explicitly asks for new options.
+- If 2+ pinned hotels exist and the user asks for a comparison or "which is better", call compare_hotels with their IDs. For single-hotel questions or non-comparison prompts about pinned hotels, call respond. Do NOT call search_hotels unless the user explicitly asks for new options.
 - ALWAYS include a tool_call. If ambiguous, make your best guess and explain it in "reasoning".
 - Output ONLY the JSON object. No explanations outside the JSON.${pinnedBlock}`;
 }
@@ -467,7 +529,13 @@ export async function POST(req: Request) {
         emit({ type: "tool_result", name, args, result });
 
         let summary = "";
-        if (name === "search_hotels") {
+        if (name === "compare_hotels") {
+          const ok = (result as any[]).filter((r) => !r.error);
+          summary =
+            ok.length >= 2
+              ? `Comparing **${ok.map((r: any) => r.name).join("**, **")}** side by side.`
+              : `I could only load ${ok.length} of the requested hotels.`;
+        } else if (name === "search_hotels") {
           summary =
             result.length === 0
               ? `I couldn't find hotels in ${args.destination}. Try a different city.`
