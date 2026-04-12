@@ -804,6 +804,58 @@ function Sheet({
   );
 }
 
+type HotelDetailsFull = {
+  id: string;
+  name: string;
+  description?: string;
+  address?: string;
+  city?: string;
+  country?: string;
+  zip?: string;
+  phone?: string;
+  email?: string;
+  stars?: number;
+  rating?: number;
+  reviewCount?: number;
+  mainPhoto?: string;
+  thumbnail?: string;
+  latitude?: number;
+  longitude?: number;
+  hotelType?: string;
+  airportCode?: string;
+  importantInformation?: string;
+  childAllowed?: boolean;
+  petsAllowed?: boolean;
+  checkin?: string;
+  checkinEnd?: string;
+  checkout?: string;
+  facilities: { id?: number; name: string }[];
+  images: { url: string; caption?: string }[];
+  pros: string[];
+  cons: string[];
+};
+
+type Room = {
+  name: string;
+  description?: string;
+  sizeSqm?: number;
+  bedTypes?: string;
+  maxOccupancy?: number;
+  price?: number;
+  currency?: string;
+  suggestedPrice?: number;
+  boardName?: string;
+  offerId?: string;
+  refundable?: boolean;
+};
+
+type DetailPayload = {
+  hotel: HotelDetailsFull;
+  rooms: Room[];
+  ratesError: string | null;
+  search: { checkin: string; checkout: string; adults: number; currency: string };
+};
+
 function HotelDetailModal({
   hotel,
   onClose,
@@ -819,8 +871,18 @@ function HotelDetailModal({
   inCart: boolean;
   pinned: boolean;
 }) {
+  const [details, setDetails] = useState<DetailPayload | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeImage, setActiveImage] = useState(0);
+
   useEffect(() => {
-    if (!hotel) return;
+    if (!hotel) {
+      setDetails(null);
+      setError(null);
+      setActiveImage(0);
+      return;
+    }
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
@@ -833,11 +895,51 @@ function HotelDetailModal({
     };
   }, [hotel, onClose]);
 
+  useEffect(() => {
+    if (!hotel) return;
+    setDetails(null);
+    setError(null);
+    setActiveImage(0);
+    setLoading(true);
+    const ac = new AbortController();
+    fetch(`/api/hotel?id=${encodeURIComponent(hotel.id)}`, { signal: ac.signal })
+      .then(async (r) => {
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error || "Failed to load");
+        setDetails(json);
+      })
+      .catch((err) => {
+        if (err.name !== "AbortError") setError(err.message);
+      })
+      .finally(() => setLoading(false));
+    return () => ac.abort();
+  }, [hotel?.id]);
+
   if (!hotel) return null;
 
-  const loc = [hotel.address, hotel.city, hotel.country]
-    .filter(Boolean)
-    .join(", ");
+  const h: HotelDetailsFull =
+    details?.hotel || {
+      id: hotel.id,
+      name: hotel.name,
+      description: hotel.description,
+      address: hotel.address,
+      city: hotel.city,
+      country: hotel.country,
+      stars: hotel.stars,
+      rating: hotel.rating,
+      reviewCount: hotel.reviewCount,
+      mainPhoto: hotel.mainPhoto || hotel.thumbnail,
+      thumbnail: hotel.thumbnail,
+      latitude: hotel.latitude,
+      longitude: hotel.longitude,
+      facilities: [],
+      images: hotel.mainPhoto ? [{ url: hotel.mainPhoto }] : [],
+      pros: [],
+      cons: [],
+    };
+
+  const loc = [h.address, h.city, h.country].filter(Boolean).join(", ");
+  const heroImage = h.images[activeImage]?.url || h.mainPhoto;
 
   return (
     <div className="fixed inset-0 z-50 flex animate-slide-in-bottom flex-col bg-background">
@@ -852,7 +954,7 @@ function HotelDetailModal({
           <X />
         </button>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{hotel.name}</div>
+          <div className="truncate text-sm font-semibold">{h.name}</div>
           {loc && (
             <div className="truncate text-xs text-muted-foreground">{loc}</div>
           )}
@@ -870,96 +972,306 @@ function HotelDetailModal({
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto pb-28">
-        {hotel.mainPhoto ? (
+        {/* Hero image */}
+        {heroImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={hotel.mainPhoto}
-            alt={hotel.name}
-            className="h-[40vh] max-h-[520px] w-full object-cover"
+            key={heroImage}
+            src={heroImage}
+            alt={h.name}
+            className="h-[40vh] max-h-[520px] w-full animate-fade-in object-cover"
           />
         ) : (
           <div className="flex h-[30vh] w-full items-center justify-center bg-muted text-sm text-muted-foreground">
-            No image available
+            {loading ? (
+              <div className="skeleton h-full w-full" />
+            ) : (
+              "No image available"
+            )}
+          </div>
+        )}
+
+        {/* Image gallery strip */}
+        {h.images.length > 1 && (
+          <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pt-3">
+            {h.images.slice(0, 12).map((img, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setActiveImage(i)}
+                className={`h-16 w-24 shrink-0 overflow-hidden rounded-lg border transition ${
+                  i === activeImage
+                    ? "ring-2 ring-foreground"
+                    : "opacity-80 hover:opacity-100"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img.url}
+                  alt={img.caption || `Photo ${i + 1}`}
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            ))}
           </div>
         )}
 
         <div className="mx-auto max-w-3xl px-4 py-6">
+          {/* Title block */}
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <h1 className="text-2xl font-semibold tracking-tight">
-                {hotel.name}
-              </h1>
+              <h1 className="text-2xl font-semibold tracking-tight">{h.name}</h1>
               <p className="mt-1 text-sm text-muted-foreground">{loc || "—"}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-                {typeof hotel.stars === "number" && hotel.stars > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                {typeof h.stars === "number" && h.stars > 0 && (
                   <span className="flex items-center gap-0.5">
-                    {Array.from({ length: Math.round(hotel.stars) }).map(
-                      (_, i) => (
-                        <Star key={i} className="text-amber-400" />
-                      )
-                    )}
+                    {Array.from({ length: Math.round(h.stars) }).map((_, i) => (
+                      <Star key={i} className="text-amber-400" />
+                    ))}
                     <span className="ml-1 text-xs text-muted-foreground">
-                      {hotel.stars}-star
+                      {h.stars}-star
                     </span>
                   </span>
                 )}
-                {typeof hotel.rating === "number" && (
+                {typeof h.rating === "number" && (
                   <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">
-                    ★ {hotel.rating.toFixed(1)}
-                    {hotel.reviewCount ? (
+                    ★ {h.rating.toFixed(1)}
+                    {h.reviewCount ? (
                       <span className="ml-1 font-normal text-muted-foreground">
-                        ({hotel.reviewCount.toLocaleString()})
+                        ({h.reviewCount.toLocaleString()})
                       </span>
                     ) : null}
                   </span>
                 )}
-                {hotel.currency && (
+                {h.hotelType && (
                   <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                    {hotel.currency}
+                    {h.hotelType}
                   </span>
                 )}
               </div>
             </div>
           </div>
 
-          {hotel.description && (
-            <section className="mt-8">
+          {/* Loading state */}
+          {loading && !details && (
+            <div className="mt-8 space-y-6">
+              <div className="skeleton h-4 w-24 rounded" />
+              <div className="space-y-2">
+                <div className="skeleton h-3 w-full rounded" />
+                <div className="skeleton h-3 w-11/12 rounded" />
+                <div className="skeleton h-3 w-4/5 rounded" />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="skeleton h-20 rounded-xl" />
+                <div className="skeleton h-20 rounded-xl" />
+              </div>
+              <div className="skeleton h-4 w-20 rounded" />
+              <div className="space-y-3">
+                {[0, 1].map((i) => (
+                  <div key={i} className="skeleton h-24 rounded-xl" />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-600 dark:text-red-300">
+              {error}
+            </div>
+          )}
+
+          {/* Pros / Cons */}
+          {(h.pros.length > 0 || h.cons.length > 0) && (
+            <section className="mt-8 animate-fade-in-up grid gap-4 sm:grid-cols-2">
+              {h.pros.length > 0 && (
+                <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-4">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-green-600 dark:text-green-400">
+                    What guests love
+                  </div>
+                  <ul className="space-y-1.5 text-xs">
+                    {h.pros.map((p, i) => (
+                      <li key={i} className="flex gap-2">
+                        <Check className="mt-0.5 shrink-0 text-green-500" />
+                        <span>{p}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {h.cons.length > 0 && (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                    Guest considerations
+                  </div>
+                  <ul className="space-y-1.5 text-xs">
+                    {h.cons.map((c, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="mt-0.5 shrink-0 text-amber-500">•</span>
+                        <span>{c}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Description */}
+          {h.description && (
+            <section className="mt-8 animate-fade-in-up">
               <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 About
               </h2>
               <p className="whitespace-pre-line text-sm leading-relaxed text-foreground/90">
-                {hotel.description}
+                {h.description}
               </p>
             </section>
           )}
 
-          <section className="mt-8 grid gap-4 sm:grid-cols-2">
+          {/* Rooms + pricing */}
+          <section className="mt-10 animate-fade-in-up">
+            <div className="mb-3 flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Rooms
+              </h2>
+              {details?.search && (
+                <span className="text-xs text-muted-foreground">
+                  {formatDateRange(details.search.checkin, details.search.checkout)}
+                  {" · "}
+                  {details.search.adults}{" "}
+                  {details.search.adults === 1 ? "adult" : "adults"}
+                </span>
+              )}
+            </div>
+
+            {loading && !details && (
+              <div className="space-y-3">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="skeleton h-28 rounded-xl"
+                    style={{ animationDelay: `${i * 120}ms` }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {details && details.rooms.length === 0 && !details.ratesError && (
+              <div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+                No rooms available for these dates.
+              </div>
+            )}
+
+            {details && details.ratesError && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-700 dark:text-amber-300">
+                Couldn't load live rates: {details.ratesError}
+              </div>
+            )}
+
+            {details && details.rooms.length > 0 && (
+              <div className="space-y-3">
+                {details.rooms.map((r, i) => (
+                  <RoomRow
+                    key={r.offerId || `${r.name}-${i}`}
+                    room={r}
+                    index={i}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Amenities */}
+          {h.facilities.length > 0 && (
+            <section className="mt-10 animate-fade-in-up">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Amenities ({h.facilities.length})
+              </h2>
+              <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
+                {h.facilities.slice(0, 30).map((f, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 text-xs text-foreground/80"
+                  >
+                    <Check className="shrink-0 text-muted-foreground" />
+                    <span className="truncate">{f.name}</span>
+                  </div>
+                ))}
+              </div>
+              {h.facilities.length > 30 && (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  + {h.facilities.length - 30} more
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Check-in / check-out + important info */}
+          {(h.checkin || h.checkout || h.importantInformation) && (
+            <section className="mt-10 animate-fade-in-up grid gap-4 sm:grid-cols-2">
+              {(h.checkin || h.checkout) && (
+                <div className="rounded-xl border bg-card p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Check-in / out
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs">
+                    {h.checkin && (
+                      <div>
+                        <span className="text-muted-foreground">Check-in:</span>{" "}
+                        {h.checkin}
+                        {h.checkinEnd ? ` – ${h.checkinEnd}` : ""}
+                      </div>
+                    )}
+                    {h.checkout && (
+                      <div>
+                        <span className="text-muted-foreground">Check-out:</span>{" "}
+                        {h.checkout}
+                      </div>
+                    )}
+                    {h.childAllowed != null && (
+                      <div className="text-muted-foreground">
+                        Children: {h.childAllowed ? "welcome" : "not allowed"}
+                      </div>
+                    )}
+                    {h.petsAllowed != null && (
+                      <div className="text-muted-foreground">
+                        Pets: {h.petsAllowed ? "welcome" : "not allowed"}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {h.importantInformation && (
+                <div className="rounded-xl border bg-card p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Good to know
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    {h.importantInformation}
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Location card */}
+          <section className="mt-10 animate-fade-in-up">
             <div className="rounded-xl border bg-card p-4">
               <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Location
               </div>
               <div className="mt-2 text-sm">{loc || "—"}</div>
-              {typeof hotel.latitude === "number" &&
-                typeof hotel.longitude === "number" && (
+              {typeof h.latitude === "number" &&
+                typeof h.longitude === "number" && (
                   <a
                     className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                    href={`https://www.google.com/maps/search/?api=1&query=${hotel.latitude},${hotel.longitude}`}
+                    href={`https://www.google.com/maps/search/?api=1&query=${h.latitude},${h.longitude}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
                     Open in Google Maps →
                   </a>
                 )}
-            </div>
-            <div className="rounded-xl border bg-card p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Hotel ID
-              </div>
-              <div className="mt-2 font-mono text-xs">{hotel.id}</div>
-              <div className="mt-3 text-xs text-muted-foreground">
-                Use "Add to chat" to compare this with other hotels or ask
-                questions.
-              </div>
             </div>
           </section>
         </div>
@@ -1003,6 +1315,71 @@ function HotelDetailModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function RoomRow({ room, index }: { room: Room; index: number }) {
+  const savings =
+    room.suggestedPrice && room.price
+      ? Math.round(
+          ((room.suggestedPrice - room.price) / room.suggestedPrice) * 100
+        )
+      : 0;
+
+  return (
+    <article
+      className="animate-fade-in-up rounded-xl border bg-card p-4"
+      style={{ animationDelay: `${index * 50}ms` }}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold">{room.name}</h3>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            {room.bedTypes && <span>{room.bedTypes}</span>}
+            {typeof room.sizeSqm === "number" && room.sizeSqm > 0 && (
+              <span>{room.sizeSqm} m²</span>
+            )}
+            {typeof room.maxOccupancy === "number" && (
+              <span>Sleeps {room.maxOccupancy}</span>
+            )}
+            {room.boardName && <span>{room.boardName}</span>}
+          </div>
+          {room.description && (
+            <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+              {room.description}
+            </p>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px]">
+            {room.refundable != null &&
+              (room.refundable ? (
+                <span className="rounded-full bg-green-500/10 px-2 py-0.5 font-medium text-green-600 dark:text-green-400">
+                  Refundable
+                </span>
+              ) : (
+                <span className="rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground">
+                  Non-refundable
+                </span>
+              ))}
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          {room.suggestedPrice && savings > 0 && (
+            <div className="text-xs text-muted-foreground line-through">
+              {formatPrice(room.suggestedPrice, room.currency)}
+            </div>
+          )}
+          <div className="text-lg font-semibold">
+            {formatPrice(room.price, room.currency)}
+          </div>
+          {savings > 0 && (
+            <div className="text-[10px] font-semibold text-green-600 dark:text-green-400">
+              Save {savings}%
+            </div>
+          )}
+          <div className="text-[10px] text-muted-foreground">total</div>
+        </div>
+      </div>
+    </article>
   );
 }
 
