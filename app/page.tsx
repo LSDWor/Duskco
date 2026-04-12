@@ -204,6 +204,12 @@ const ShoppingBag = (p: any) => (
     <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0" />
   </svg>
 );
+const User = (p: any) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" {...svg(p)}>
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </svg>
+);
 const Menu = (p: any) => (
   <svg width="16" height="16" viewBox="0 0 24 24" {...svg(p)}>
     <line x1="3" y1="12" x2="21" y2="12" />
@@ -2032,7 +2038,7 @@ function RoomRow({
   );
 }
 
-function CartSheet({
+function CartModal({
   open,
   onClose,
   cart,
@@ -2050,17 +2056,64 @@ function CartSheet({
     return sum;
   }, 0);
 
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
   return (
-    <Sheet open={open} onClose={onClose} side="right" title={`Cart (${cart.length})`}>
-      {cart.length === 0 ? (
-        <div className="p-8 text-center text-sm text-muted-foreground">
-          Your cart is empty. Add hotels or flights from a search result.
+    <div className="fixed inset-0 z-50 flex animate-slide-in-bottom flex-col bg-background">
+      <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-muted"
+          aria-label="Close"
+        >
+          <X />
+        </button>
+        <div className="flex-1">
+          <span className="text-sm font-semibold">Cart</span>
+          {cart.length > 0 && (
+            <span className="ml-2 text-xs text-muted-foreground">
+              {cart.length} {cart.length === 1 ? "item" : "items"}
+            </span>
+          )}
         </div>
-      ) : (
-        <div className="flex h-full flex-col">
-          <ul className="flex-1 divide-y">
-            {cart.map((item) => (
-              <li key={item.id} className="flex gap-3 p-4">
+        {total > 0 && (
+          <div className="text-sm font-semibold">
+            {formatPrice(total, "USD")}
+          </div>
+        )}
+      </header>
+
+      <div className="flex-1 overflow-y-auto pb-28">
+        {cart.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-3 p-16 text-center">
+            <ShoppingBag className="h-12 w-12 text-muted-foreground/30" />
+            <div className="text-sm text-muted-foreground">
+              Your cart is empty. Add rooms or flights from search results.
+            </div>
+          </div>
+        ) : (
+          <ul className="mx-auto max-w-2xl divide-y">
+            {cart.map((item, i) => (
+              <li
+                key={item.id}
+                className="animate-fade-in-up flex gap-4 p-4"
+                style={{ animationDelay: `${i * 40}ms` }}
+              >
                 {item.kind === "hotel" ? (
                   <>
                     {item.hotel.thumbnail && (
@@ -2068,15 +2121,14 @@ function CartSheet({
                       <img
                         src={item.hotel.thumbnail}
                         alt={item.hotel.name}
-                        className="h-16 w-20 shrink-0 rounded-lg object-cover"
+                        className="h-20 w-28 shrink-0 rounded-xl object-cover"
                       />
                     )}
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Bed />
-                        Hotel
+                      <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <Bed /> Hotel
                       </div>
-                      <div className="truncate text-sm font-medium">
+                      <div className="mt-1 truncate text-sm font-semibold">
                         {item.hotel.name}
                       </div>
                       <div className="truncate text-xs text-muted-foreground">
@@ -2091,44 +2143,42 @@ function CartSheet({
                       <img
                         src={item.hotelThumbnail}
                         alt={item.hotelName}
-                        className="h-16 w-20 shrink-0 rounded-lg object-cover"
+                        className="h-20 w-28 shrink-0 rounded-xl object-cover"
                       />
                     ) : (
-                      <div className="flex h-16 w-20 shrink-0 items-center justify-center rounded-lg bg-muted">
+                      <div className="flex h-20 w-28 shrink-0 items-center justify-center rounded-xl bg-muted">
                         <Bed />
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Bed />
-                        Room
+                      <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <Bed /> Room
                       </div>
-                      <div className="truncate text-sm font-medium">
+                      <div className="mt-1 truncate text-sm font-semibold">
                         {item.hotelName}
                       </div>
                       <div className="truncate text-xs text-muted-foreground">
                         {item.roomName}
                         {item.boardName ? ` · ${item.boardName}` : ""}
                       </div>
-                      <div className="mt-0.5 text-xs font-semibold">
+                      <div className="mt-1 text-sm font-semibold">
                         {formatPrice(item.price, item.currency)}
                       </div>
                     </div>
                   </>
                 ) : (
                   <>
-                    <div className="flex h-16 w-20 shrink-0 items-center justify-center rounded-lg bg-muted">
+                    <div className="flex h-20 w-28 shrink-0 items-center justify-center rounded-xl bg-muted">
                       <Plane />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Plane />
-                        Flight
+                      <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <Plane /> Flight
                       </div>
-                      <div className="truncate text-sm font-medium">
+                      <div className="mt-1 truncate text-sm font-semibold">
                         {item.flight.origin} → {item.flight.destination}
                       </div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="mt-1 text-sm font-semibold">
                         {formatPrice(item.flight.price, item.flight.currency)}
                       </div>
                     </div>
@@ -2137,7 +2187,7 @@ function CartSheet({
                 <button
                   type="button"
                   onClick={() => onRemove(item.id)}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
                   aria-label="Remove"
                 >
                   <X />
@@ -2145,18 +2195,27 @@ function CartSheet({
               </li>
             ))}
           </ul>
-          <div className="border-t p-4">
+        )}
+      </div>
+
+      {cart.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent pb-4 pt-10">
+          <div className="mx-auto max-w-2xl px-4">
             {total > 0 && (
               <div className="mb-3 flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Total</span>
-                <span className="font-semibold">{formatPrice(total, "USD")}</span>
+                <span className="text-lg font-bold">
+                  {formatPrice(total, "USD")}
+                </span>
               </div>
             )}
             <button
               type="button"
-              className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+              className="w-full rounded-2xl bg-primary py-3.5 text-sm font-medium text-primary-foreground shadow-lg shadow-black/20 transition hover:opacity-90"
               onClick={() =>
-                alert("Checkout is a demo — wire up LiteAPI prebook/book next.")
+                alert(
+                  "Checkout is a demo — wire up LiteAPI prebook/book next."
+                )
               }
             >
               Checkout
@@ -2164,7 +2223,7 @@ function CartSheet({
           </div>
         </div>
       )}
-    </Sheet>
+    </div>
   );
 }
 
@@ -2640,7 +2699,32 @@ export default function Home() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col px-4">
-      <header className="flex items-center justify-between py-5">
+      {/* Sticky top-right cart + login — always visible */}
+      <div className="fixed right-4 top-4 z-40 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => alert("Login is a placeholder — wire up NextAuth next.")}
+          className="flex h-9 items-center gap-1.5 rounded-full border bg-card/90 px-3 text-xs font-medium backdrop-blur transition hover:bg-muted"
+        >
+          <User />
+          <span className="hidden sm:inline">Sign in</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setCartOpen(true)}
+          className="relative flex h-9 items-center gap-1.5 rounded-full border bg-card/90 px-3 text-xs font-medium backdrop-blur transition hover:bg-muted"
+        >
+          <ShoppingBag />
+          <span className="hidden sm:inline">Cart</span>
+          {cart.length > 0 && (
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+              {cart.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      <header className="flex items-center justify-between py-5 pr-36">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -2665,19 +2749,6 @@ export default function Home() {
               New chat
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => setCartOpen(true)}
-            className="relative flex h-8 items-center gap-1.5 rounded-full border bg-card px-3 text-xs font-medium transition hover:bg-muted"
-          >
-            <ShoppingBag />
-            Cart
-            {cart.length > 0 && (
-              <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                {cart.length}
-              </span>
-            )}
-          </button>
         </div>
       </header>
 
@@ -2790,7 +2861,7 @@ export default function Home() {
         }}
         onDelete={deleteChat}
       />
-      <CartSheet
+      <CartModal
         open={cartOpen}
         onClose={() => setCartOpen(false)}
         cart={cart}
