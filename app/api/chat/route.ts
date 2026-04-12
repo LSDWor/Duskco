@@ -340,6 +340,67 @@ const TOOLS = {
     const journeys: any[] = batches.flatMap((b: any) => b?.journeys || []);
     return journeys.slice(0, 15).map(normalizeJourney);
   },
+
+  async get_destination_weather(args: any) {
+    const apiKey = process.env.LITEAPI_KEY;
+    if (!apiKey) throw new Error("LITEAPI_KEY not set");
+
+    const city = String(args.city || "");
+    const countryCode = String(args.countryCode || "").toUpperCase();
+    const startDate = args.startDate || todayISO(0);
+    const endDate = args.endDate || todayISO(6);
+
+    // Step 1: geocode via Nominatim (OpenStreetMap) — reliable, no key needed
+    const geoRes = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+        `${city}, ${countryCode}`
+      )}&format=json&limit=1`,
+      { headers: { "User-Agent": "Duskgo/0.1 (travel-app)" } }
+    );
+    const geoData = await geoRes.json();
+    const lat = parseFloat(geoData?.[0]?.lat);
+    const lng = parseFloat(geoData?.[0]?.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new Error(`Could not find coordinates for ${city}`);
+    }
+
+    // Step 2: fetch weather
+    const weatherUrl = new URL("https://api.liteapi.travel/v3.0/data/weather");
+    weatherUrl.searchParams.set("latitude", String(lat));
+    weatherUrl.searchParams.set("longitude", String(lng));
+    weatherUrl.searchParams.set("startDate", startDate);
+    weatherUrl.searchParams.set("endDate", endDate);
+    weatherUrl.searchParams.set("units", "imperial");
+
+    const weatherRes = await fetch(weatherUrl.toString(), {
+      headers: { "X-API-Key": apiKey, accept: "application/json" },
+    });
+    if (!weatherRes.ok) {
+      throw new Error(`Weather API ${weatherRes.status}`);
+    }
+    const weatherJson = await weatherRes.json();
+    const wd = weatherJson?.weatherData || [];
+
+    return {
+      city,
+      countryCode,
+      coordinates: { lat, lng },
+      startDate,
+      endDate,
+      days: (wd as any[]).map((item: any) => {
+        const dw = item?.dailyWeather ?? item;
+        return {
+          date: dw.date,
+          tempMin: dw.temperature?.min,
+          tempMax: dw.temperature?.max,
+          humidity: dw.humidity?.afternoon,
+          cloudCover: dw.cloud_cover?.afternoon,
+          precipitation: dw.precipitation?.total,
+          windSpeed: dw.wind?.max?.speed,
+        };
+      }),
+    };
+  },
 };
 
 /* --------------------------- OpenRouter --------------------------- */
@@ -393,7 +454,7 @@ function extractJson(raw: string): any {
 
 /* -------------------------- system prompt ------------------------- */
 
-function buildSystemPrompt(pinned?: PinnedHotel[]) {
+function buildSystemPrompt(pinned?: PinnedHotel[], mode?: string) {
   const pinnedBlock =
     pinned && pinned.length > 0
       ? `\n\nThe user has pinned these hotels to the conversation for reference. Use them when answering comparison, questions, or "which is better" prompts — don't re-search unless the user asks for new options:\n${pinned
@@ -416,7 +477,7 @@ function buildSystemPrompt(pinned?: PinnedHotel[]) {
           .join("\n")}`
       : "";
 
-  return `You are Duskgo, an AI travel concierge with access to real travel inventory via the LiteAPI MCP server. The user chats with you in natural language. For each user message, pick exactly one tool and return ONLY a JSON object (no prose, no markdown, no code fences) with this exact shape:
+  const envelope = `For each user message, pick exactly one tool and return ONLY a JSON object (no prose, no markdown, no code fences) with this exact shape:
 
 {
   "reasoning": "<2-5 sentences, first-person, explaining how you interpreted the request and which tool you're calling and why>",
@@ -424,20 +485,9 @@ function buildSystemPrompt(pinned?: PinnedHotel[]) {
     "name": "<tool name>",
     "arguments": { ... }
   }
-}
+}`;
 
-Available tools:
-
-1. respond — Answer the user directly with natural-language text. Use this when the user is asking a question, requesting hotel details they've pinned, seeking advice, or the answer can be composed from conversation context without a fresh data lookup. This is the default when the user has pinned hotels and is asking about them (except comparisons — see #2).
-   arguments: {
-     text: string              // Markdown. Structure answers with short headings or **bold labels**, concise bullet lists (- ...), and 1–2 sentence paragraphs. Always include concrete facts from the pinned context (location, star rating, review score, standout features). Avoid generic filler. For "tell me about <hotel>" prompts, structure as: 1-sentence headline, then bullets covering Vibe, Best for, Standout features, and any caveats from cons.
-   }
-
-2. compare_hotels — Build a side-by-side structured comparison of 2–5 hotels. USE THIS (not respond) when the user asks to "compare", "contrast", "side by side", "which is better", "differences", "vs", or similar, AND there are 2+ pinned hotels available. The client renders the result as a real comparison table.
-   arguments: {
-     hotelIds: string[]        // 2–5 hotel IDs drawn from the pinned context (each pinned hotel has an [id:...] tag below)
-   }
-
+  const sharedTools = `
 3. search_hotels — Search hotels in a city. Use when the user asks about hotels, stays, or a place to stay and wants NEW options.
    arguments: {
      destination: string,       // city name, e.g. "Paris"
@@ -461,19 +511,73 @@ Available tools:
      currency?: string          // ISO 4217, default "USD"
    }
 
-Rules:
+6. get_destination_weather — Get weather forecast for a city. Use when the user asks about weather, climate, best time to visit, or what to pack.
+   arguments: {
+     city: string,              // FULL city name, e.g. "Bali", "Paris", "New York" — NOT abbreviations
+     countryCode: string,       // ISO 3166-1 alpha-2
+     startDate?: string,        // YYYY-MM-DD, defaults to today
+     endDate?: string           // YYYY-MM-DD, defaults to today+6
+   }`;
+
+  const sharedRules = `
 - Today is ${todayISO(0)}. If dates are vague ("next month", "in June"), pick sensible concrete future dates.
 - If only duration is given, assume check-in 30 days from today.
 - For flights, YOU must pick the correct 3-letter IATA airport codes — use the most common primary airport for each city (Paris→CDG, New York→JFK, London→LHR, Tokyo→HND, Los Angeles→LAX, Singapore→SIN).
-- If 2+ pinned hotels exist and the user asks for a comparison or "which is better", call compare_hotels with their IDs. For single-hotel questions or non-comparison prompts about pinned hotels, call respond. Do NOT call search_hotels unless the user explicitly asks for new options.
 - ALWAYS include a tool_call. If ambiguous, make your best guess and explain it in "reasoning".
-- Output ONLY the JSON object. No explanations outside the JSON.${pinnedBlock}`;
+- Output ONLY the JSON object. No explanations outside the JSON.`;
+
+  if (mode === "research") {
+    return `You are Duskgo in **Research Mode** — a thorough AI travel research assistant. The user is exploring destinations, comparing cities, checking weather, and gathering information BEFORE deciding where to book. Your job is to provide detailed, analytical, well-structured research — not quick summaries.
+
+${envelope}
+
+Available tools:
+
+1. respond — Your PRIMARY tool in research mode. Give thorough, well-researched answers about destinations, neighborhoods, culture, safety, budget, best times to visit, things to do, packing tips, visa requirements, and travel logistics. Use rich markdown: headings, bold labels, bullet lists, numbered lists. Aim for 3–6 paragraphs with concrete facts. When the user asks "where should I go" or "best destination for X", give a structured comparison of 3–4 options with pros/cons for each.
+   arguments: {
+     text: string              // Rich markdown. Be thorough — this is research mode.
+   }
+
+2. compare_hotels — Build a side-by-side structured comparison of 2–5 hotels when the user has pinned hotels and asks for comparison.
+   arguments: {
+     hotelIds: string[]
+   }
+${sharedTools}
+
+Rules:
+${sharedRules}
+- You are in RESEARCH MODE. Prioritize depth and detail. Use the respond tool for most questions. Only call search_hotels or search_flights when the user explicitly asks to see listings.
+- For weather questions, call get_destination_weather to ground your answer with real forecast data.
+- When suggesting destinations, structure as: brief intro, then a list of 3–4 options each with **Why go**, **Best for**, **Budget level**, **Best time**, and **Watch out for**.
+- If 2+ pinned hotels exist and the user asks for a comparison, call compare_hotels.${pinnedBlock}`;
+  }
+
+  return `You are Duskgo, an AI travel concierge with access to real travel inventory via the LiteAPI MCP server. The user chats with you in natural language.
+
+${envelope}
+
+Available tools:
+
+1. respond — Answer the user directly with natural-language text. Use this when the user is asking a question, requesting hotel details they've pinned, seeking advice, or the answer can be composed from conversation context without a fresh data lookup. This is the default when the user has pinned hotels and is asking about them (except comparisons — see #2).
+   arguments: {
+     text: string              // Markdown. Structure answers with short headings or **bold labels**, concise bullet lists (- ...), and 1–2 sentence paragraphs. Always include concrete facts from the pinned context (location, star rating, review score, standout features). Avoid generic filler. For "tell me about <hotel>" prompts, structure as: 1-sentence headline, then bullets covering Vibe, Best for, Standout features, and any caveats from cons.
+   }
+
+2. compare_hotels — Build a side-by-side structured comparison of 2–5 hotels. USE THIS (not respond) when the user asks to "compare", "contrast", "side by side", "which is better", "differences", "vs", or similar, AND there are 2+ pinned hotels available. The client renders the result as a real comparison table.
+   arguments: {
+     hotelIds: string[]        // 2–5 hotel IDs drawn from the pinned context (each pinned hotel has an [id:...] tag below)
+   }
+${sharedTools}
+
+Rules:
+${sharedRules}
+- If 2+ pinned hotels exist and the user asks for a comparison or "which is better", call compare_hotels with their IDs. For single-hotel questions or non-comparison prompts about pinned hotels, call respond. Do NOT call search_hotels unless the user explicitly asks for new options.${pinnedBlock}`;
 }
 
 /* ------------------------------ route ----------------------------- */
 
 export async function POST(req: Request) {
-  let body: { messages?: ChatMessage[]; pinned?: PinnedHotel[] };
+  let body: { messages?: ChatMessage[]; pinned?: PinnedHotel[]; mode?: string };
   try {
     body = await req.json();
   } catch {
@@ -481,6 +585,7 @@ export async function POST(req: Request) {
   }
   const messages = body.messages;
   const pinned = Array.isArray(body.pinned) ? body.pinned : undefined;
+  const mode = body.mode === "research" ? "research" : "booking";
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: "messages[] required" }, { status: 400 });
   }
@@ -496,7 +601,7 @@ export async function POST(req: Request) {
         await sleep(80);
 
         const llmMessages: ChatMessage[] = [
-          { role: "system", content: buildSystemPrompt(pinned) },
+          { role: "system", content: buildSystemPrompt(pinned, mode) },
           ...messages.filter(
             (m) => m.role === "user" || m.role === "assistant"
           ),
@@ -541,6 +646,12 @@ export async function POST(req: Request) {
             ok.length >= 2
               ? `Comparing **${ok.map((r: any) => r.name).join("**, **")}** side by side.`
               : `I could only load ${ok.length} of the requested hotels.`;
+        } else if (name === "get_destination_weather") {
+          const r = result as any;
+          const days = r?.days?.length ?? 0;
+          summary = days > 0
+            ? `Here's the weather forecast for ${r.city} (${r.startDate} to ${r.endDate}).`
+            : `Couldn't fetch weather data for ${r?.city || "that destination"}.`;
         } else if (name === "search_hotels") {
           summary =
             result.length === 0

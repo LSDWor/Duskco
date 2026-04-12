@@ -79,7 +79,8 @@ type ToolCall =
         adults: number;
       };
     }
-  | { name: "respond"; args: { text?: string } };
+  | { name: "respond"; args: { text?: string } }
+  | { name: "get_destination_weather"; args: { city: string; countryCode: string; startDate?: string; endDate?: string } };
 
 type UserMessage = { id: string; role: "user"; content: string };
 type AssistantMessage = {
@@ -93,6 +94,10 @@ type AssistantMessage = {
     hotel?: Hotel;
     flights?: Flight[];
     comparison?: CompareRow[];
+    weather?: {
+      city: string;
+      days: WeatherDay[];
+    };
   };
   message?: string;
   error?: string;
@@ -134,11 +139,18 @@ type CartItem = CartHotelItem | CartFlightItem | CartRoomItem;
 
 type ApiMessage = { role: "user" | "assistant"; content: string };
 
-const SUGGESTIONS = [
+const BOOKING_SUGGESTIONS = [
   "3 nights in Paris for 2 people in early June",
   "Flights from NYC to Tokyo next month",
   "Beach hotel in Bali for a week",
   "Hotels in Rome for 5 days in July",
+];
+
+const RESEARCH_SUGGESTIONS = [
+  "Best European cities for a first-time couple's trip?",
+  "What's the weather like in Bali in August?",
+  "Is Barcelona or Rome better for food lovers?",
+  "Safest neighborhoods to stay in Mexico City",
 ];
 
 const LS_CHATS = "duskgo.chats.v1";
@@ -565,6 +577,16 @@ function ToolCallRow({
         <span className="font-medium">compare_hotels</span>
         <span className="truncate text-muted-foreground">
           {call.args.hotelIds?.length ?? 0} hotels
+        </span>
+      </>
+    );
+  } else if (call.name === "get_destination_weather") {
+    icon = <SearchIcon />;
+    label = (
+      <>
+        <span className="font-medium">get_weather</span>
+        <span className="truncate text-muted-foreground">
+          {(call as any).args?.city || ""}
         </span>
       </>
     );
@@ -1220,6 +1242,12 @@ function AssistantMessageView({
             ))}
           </div>
         )}
+
+      {msg.toolResult?.weather && msg.toolResult.weather.days.length > 0 && (
+        <div className="animate-fade-in-up">
+          <WeatherStrip days={msg.toolResult.weather.days} />
+        </div>
+      )}
 
       {msg.toolResult?.comparison && msg.toolResult.comparison.length > 0 && (
         <div className="animate-fade-in-up">
@@ -2323,10 +2351,11 @@ type InputCardProps = {
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   loading: boolean;
   autosize: (el: HTMLTextAreaElement) => void;
+  placeholder?: string;
 };
 
 const InputCard = forwardRef<HTMLTextAreaElement, InputCardProps>(
-  function InputCard({ query, setQuery, onKeyDown, loading, autosize }, ref) {
+  function InputCard({ query, setQuery, onKeyDown, loading, autosize, placeholder }, ref) {
     return (
       <div className="group relative rounded-3xl border bg-card shadow-sm transition focus-within:border-foreground/40 focus-within:shadow-md">
         <textarea
@@ -2337,7 +2366,7 @@ const InputCard = forwardRef<HTMLTextAreaElement, InputCardProps>(
             autosize(e.currentTarget);
           }}
           onKeyDown={onKeyDown}
-          placeholder="Ask for hotels, flights, or a whole trip…"
+          placeholder={placeholder || "Ask for hotels, flights, or a whole trip…"}
           rows={1}
           className="block w-full resize-none rounded-3xl bg-transparent px-5 py-4 pr-14 text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none"
         />
@@ -2399,6 +2428,7 @@ export default function Home() {
   const [pinned, setPinned] = useState<Hotel[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<"research" | "booking">("booking");
   const [cartOpen, setCartOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [detailHotel, setDetailHotel] = useState<Hotel | null>(null);
@@ -2579,7 +2609,7 @@ export default function Home() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, pinned: pinnedPayload }),
+        body: JSON.stringify({ messages: history, pinned: pinnedPayload, mode }),
       });
       if (!res.body) throw new Error("No response body");
 
@@ -2624,6 +2654,8 @@ export default function Home() {
                     ? { comparison: result }
                     : name === "search_flights"
                     ? { flights: result }
+                    : name === "get_destination_weather"
+                    ? { weather: { city: result?.city, days: result?.days || [] } }
                     : {},
               }));
               break;
@@ -2760,18 +2792,49 @@ export default function Home() {
             New chat
           </button>
         )}
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() =>
+            setMode((m) => (m === "research" ? "booking" : "research"))
+          }
+          className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+            mode === "research"
+              ? "bg-blue-500/15 text-blue-600 ring-1 ring-blue-500/30 dark:text-blue-400"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          <SearchIcon />
+          {mode === "research" ? "Research mode" : "Research"}
+        </button>
       </header>
 
       {!hasMessages && (
         <section className="flex flex-1 flex-col items-center justify-center pb-24">
           <div className="mb-8 text-center">
-            <h1 className="text-balance text-3xl font-semibold tracking-tight md:text-4xl">
-              Where to next?
-            </h1>
-            <p className="mt-3 text-sm text-muted-foreground md:text-base">
-              Describe your trip. Duskgo searches hotels, flights, and details
-              via the LiteAPI MCP server.
-            </p>
+            {mode === "research" ? (
+              <>
+                <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-blue-500/15 px-3 py-1 text-xs font-medium text-blue-600 dark:text-blue-400">
+                  <SearchIcon /> Research Mode
+                </div>
+                <h1 className="text-balance text-3xl font-semibold tracking-tight md:text-4xl">
+                  Explore before you book
+                </h1>
+                <p className="mt-3 text-sm text-muted-foreground md:text-base">
+                  Ask about destinations, weather, neighborhoods, budgets — get
+                  thorough research before deciding.
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className="text-balance text-3xl font-semibold tracking-tight md:text-4xl">
+                  Where to next?
+                </h1>
+                <p className="mt-3 text-sm text-muted-foreground md:text-base">
+                  Describe your trip. Search hotels, flights, and compare options.
+                </p>
+              </>
+            )}
           </div>
 
           <form onSubmit={onSubmit} className="w-full">
@@ -2783,11 +2846,16 @@ export default function Home() {
               onKeyDown={onKeyDown}
               loading={loading}
               autosize={autosize}
+              placeholder={
+                mode === "research"
+                  ? "Ask about destinations, weather, budget, safety…"
+                  : "Search hotels, flights, or describe your trip…"
+              }
             />
           </form>
 
           <div className="mt-5 flex flex-wrap justify-center gap-2">
-            {SUGGESTIONS.map((s) => (
+            {(mode === "research" ? RESEARCH_SUGGESTIONS : BOOKING_SUGGESTIONS).map((s) => (
               <button
                 key={s}
                 onClick={() => runChat(s)}
