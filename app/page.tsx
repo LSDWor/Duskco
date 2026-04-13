@@ -2147,6 +2147,7 @@ function ProfileModal({
 }) {
   const [first, setFirst] = useState(profile?.firstName || "");
   const [last, setLast] = useState(profile?.lastName || "");
+  const [loyalty, setLoyalty] = useState<any>(null);
   const [email, setEmail] = useState(profile?.email || "");
 
   useEffect(() => {
@@ -2154,6 +2155,12 @@ function ProfileModal({
       setFirst(profile?.firstName || "");
       setLast(profile?.lastName || "");
       setEmail(profile?.email || "");
+      if (profile?.email) {
+        fetch(`/api/loyalty?email=${encodeURIComponent(profile.email)}`)
+          .then((r) => r.json())
+          .then((d) => setLoyalty(d))
+          .catch(() => {});
+      }
     }
   }, [open, profile]);
 
@@ -2208,6 +2215,19 @@ function ProfileModal({
               ? "Your info is used to pre-fill hotel bookings."
               : "Your name and email will pre-fill checkout when you book a hotel."}
           </p>
+          {profile && loyalty?.program?.enabled && (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+              <Star className="text-amber-400" />
+              {loyalty.points?.available != null
+                ? `${loyalty.points.available.toLocaleString()} points`
+                : "Loyalty member"}
+              {loyalty.program.cashbackRate > 0 && (
+                <span className="text-[10px] font-normal text-amber-500/70">
+                  · {Math.round(loyalty.program.cashbackRate * 100)}% cashback
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="space-y-4">
@@ -2302,6 +2322,225 @@ type BookingRecord = {
   email?: string;
   createdAt?: string;
 };
+
+function TripModal({
+  open,
+  onClose,
+  cart,
+  onRemove,
+}: {
+  open: boolean;
+  onClose: () => void;
+  cart: CartItem[];
+  onRemove: (id: string) => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const hotels = cart.filter((c) => c.kind === "hotel") as CartHotelItem[];
+  const rooms = cart.filter((c) => c.kind === "room") as CartRoomItem[];
+  const flights = cart.filter((c) => c.kind === "flight") as CartFlightItem[];
+  const total = [...rooms, ...flights].reduce((sum, c) => {
+    if (c.kind === "room") return sum + c.price;
+    if (c.kind === "flight" && typeof c.flight.price === "number")
+      return sum + c.flight.price;
+    return sum;
+  }, 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex animate-slide-in-bottom flex-col bg-background">
+      <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-muted"
+        >
+          <X />
+        </button>
+        <div className="flex-1">
+          <span className="text-sm font-semibold">My Trip</span>
+          <span className="ml-2 text-xs text-muted-foreground">
+            {cart.length} {cart.length === 1 ? "item" : "items"}
+          </span>
+        </div>
+        {total > 0 && (
+          <div className="text-sm font-semibold">{formatPrice(total, "USD")}</div>
+        )}
+      </header>
+
+      <div className="flex-1 overflow-y-auto pb-8">
+        {cart.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 p-16 text-center">
+            <Plane className="h-10 w-10 text-muted-foreground/30" />
+            <div className="text-sm text-muted-foreground">
+              Your trip is empty. Search for hotels and flights to build your
+              itinerary.
+            </div>
+          </div>
+        ) : (
+          <div className="mx-auto max-w-2xl px-4 py-6">
+            {/* Flights section */}
+            {flights.length > 0 && (
+              <section className="mb-8 animate-fade-in-up">
+                <h2 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Plane /> Flights ({flights.length})
+                </h2>
+                <div className="space-y-3">
+                  {flights.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 rounded-xl border bg-card p-4"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold">
+                          {item.flight.origin} → {item.flight.destination}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {item.flight.airline || item.flight.airlineCode || "Flight"}
+                          {item.flight.departureTime &&
+                            ` · ${formatTime(item.flight.departureTime)}`}
+                        </div>
+                        {typeof item.flight.price === "number" && (
+                          <div className="mt-1 text-sm font-semibold">
+                            {formatPrice(item.flight.price, item.flight.currency)}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(item.id)}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        <X />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Hotels section */}
+            {hotels.length > 0 && (
+              <section className="mb-8 animate-fade-in-up">
+                <h2 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Bed /> Hotels ({hotels.length})
+                </h2>
+                <div className="space-y-3">
+                  {hotels.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 rounded-xl border bg-card p-4"
+                    >
+                      {item.hotel.thumbnail && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={item.hotel.thumbnail}
+                          alt={item.hotel.name}
+                          className="h-16 w-24 shrink-0 rounded-lg object-cover"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold">
+                          {item.hotel.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {item.hotel.city}, {item.hotel.country}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(item.id)}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        <X />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Rooms section */}
+            {rooms.length > 0 && (
+              <section className="mb-8 animate-fade-in-up">
+                <h2 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Bed /> Rooms ({rooms.length})
+                </h2>
+                <div className="space-y-3">
+                  {rooms.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 rounded-xl border bg-card p-4"
+                    >
+                      {item.hotelThumbnail && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={item.hotelThumbnail}
+                          alt={item.hotelName}
+                          className="h-16 w-24 shrink-0 rounded-lg object-cover"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold">
+                          {item.hotelName}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {item.roomName}
+                          {item.boardName ? ` · ${item.boardName}` : ""}
+                        </div>
+                        <div className="mt-1 text-sm font-semibold">
+                          {formatPrice(item.price, item.currency)}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(item.id)}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        <X />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Trip summary */}
+            {total > 0 && (
+              <section className="animate-fade-in-up rounded-2xl border bg-card p-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">
+                    Estimated total
+                  </span>
+                  <span className="text-xl font-bold">
+                    {formatPrice(total, "USD")}
+                  </span>
+                </div>
+                <div className="mt-3 text-[10px] text-muted-foreground">
+                  Book each item individually using the "Book now" buttons in
+                  hotel details. Prices are estimates and may change.
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function BookingsModal({
   open,
@@ -2751,10 +2990,15 @@ type InputCardProps = {
   loading: boolean;
   autosize: (el: HTMLTextAreaElement) => void;
   placeholder?: string;
+  mode: "research" | "booking";
+  onToggleMode: () => void;
 };
 
 const InputCard = forwardRef<HTMLTextAreaElement, InputCardProps>(
-  function InputCard({ query, setQuery, onKeyDown, loading, autosize, placeholder }, ref) {
+  function InputCard(
+    { query, setQuery, onKeyDown, loading, autosize, placeholder, mode, onToggleMode },
+    ref
+  ) {
     return (
       <div className="group relative rounded-3xl border bg-card shadow-sm transition focus-within:border-foreground/40 focus-within:shadow-md">
         <textarea
@@ -2767,8 +3011,22 @@ const InputCard = forwardRef<HTMLTextAreaElement, InputCardProps>(
           onKeyDown={onKeyDown}
           placeholder={placeholder || "Ask for hotels, flights, or a whole trip…"}
           rows={1}
-          className="block w-full resize-none rounded-3xl bg-transparent px-5 py-4 pr-14 text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none"
+          className="block w-full resize-none rounded-3xl bg-transparent px-5 pb-12 pt-4 pr-14 text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none"
         />
+        <div className="absolute bottom-2.5 left-3 right-14 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onToggleMode}
+            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+              mode === "research"
+                ? "bg-blue-500/15 text-blue-600 ring-1 ring-blue-500/30 dark:text-blue-400"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            <SearchIcon />
+            {mode === "research" ? "Research" : "Research"}
+          </button>
+        </div>
         <button
           type="submit"
           disabled={loading || !query.trim()}
@@ -2781,6 +3039,50 @@ const InputCard = forwardRef<HTMLTextAreaElement, InputCardProps>(
     );
   }
 );
+
+function CyclingSuggestion({
+  items,
+  onSelect,
+}: {
+  items: string[];
+  onSelect: (s: string) => void;
+}) {
+  const [index, setIndex] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const cycle = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setIndex((i) => (i + 1) % items.length);
+        setVisible(true);
+      }, 300);
+    }, 4000);
+    return () => clearInterval(cycle);
+  }, [items.length]);
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(items[index])}
+      className="group mt-4 flex items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground"
+    >
+      <span className="text-xs">Try:</span>
+      <span
+        className={`transition-all duration-300 ${
+          visible
+            ? "translate-y-0 opacity-100"
+            : "-translate-y-2 opacity-0"
+        }`}
+      >
+        &ldquo;{items[index]}&rdquo;
+      </span>
+      <span className="text-xs opacity-0 transition group-hover:opacity-100">
+        →
+      </span>
+    </button>
+  );
+}
 
 function PinnedChips({
   pinned,
@@ -3182,8 +3484,8 @@ export default function Home() {
           onClick={() => setCartOpen(true)}
           className="relative flex h-9 items-center gap-1.5 rounded-full border bg-card/90 px-3 text-xs font-medium backdrop-blur transition hover:bg-muted"
         >
-          <ShoppingBag />
-          <span className="hidden sm:inline">Cart</span>
+          <Plane />
+          <span className="hidden sm:inline">My Trip</span>
           {cart.length > 0 && (
             <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
               {cart.length}
@@ -3210,21 +3512,6 @@ export default function Home() {
             New chat
           </button>
         )}
-        <div className="flex-1" />
-        <button
-          type="button"
-          onClick={() =>
-            setMode((m) => (m === "research" ? "booking" : "research"))
-          }
-          className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-            mode === "research"
-              ? "bg-blue-500/15 text-blue-600 ring-1 ring-blue-500/30 dark:text-blue-400"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground"
-          }`}
-        >
-          <SearchIcon />
-          {mode === "research" ? "Research mode" : "Research"}
-        </button>
       </header>
 
       {!hasMessages && (
@@ -3264,6 +3551,10 @@ export default function Home() {
               onKeyDown={onKeyDown}
               loading={loading}
               autosize={autosize}
+              mode={mode}
+              onToggleMode={() =>
+                setMode((m) => (m === "research" ? "booking" : "research"))
+              }
               placeholder={
                 mode === "research"
                   ? "Ask about destinations, weather, budget, safety…"
@@ -3272,7 +3563,16 @@ export default function Home() {
             />
           </form>
 
-          <div className="mt-5 flex flex-wrap justify-center gap-2">
+          <CyclingSuggestion
+            items={
+              mode === "research"
+                ? RESEARCH_SUGGESTIONS
+                : BOOKING_SUGGESTIONS
+            }
+            onSelect={(s) => runChat(s)}
+          />
+
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
             {(mode === "research" ? RESEARCH_SUGGESTIONS : BOOKING_SUGGESTIONS).map((s) => (
               <button
                 key={s}
@@ -3334,6 +3634,12 @@ export default function Home() {
                   onKeyDown={onKeyDown}
                   loading={loading}
                   autosize={autosize}
+                  mode={mode}
+                  onToggleMode={() =>
+                    setMode((m) =>
+                      m === "research" ? "booking" : "research"
+                    )
+                  }
                 />
               </div>
             </form>
@@ -3356,7 +3662,7 @@ export default function Home() {
         }}
         onDelete={deleteChat}
       />
-      <CartModal
+      <TripModal
         open={cartOpen}
         onClose={() => setCartOpen(false)}
         cart={cart}
