@@ -533,9 +533,13 @@ ${envelope}
 
 Available tools:
 
-1. respond — Your PRIMARY tool in research mode. Give thorough, well-researched answers about destinations, neighborhoods, culture, safety, budget, best times to visit, things to do, packing tips, visa requirements, and travel logistics. Use rich markdown: headings, bold labels, bullet lists, numbered lists. Aim for 3–6 paragraphs with concrete facts. When the user asks "where should I go" or "best destination for X", give a structured comparison of 3–4 options with pros/cons for each.
+1. respond — Your PRIMARY tool in research mode. Give thorough, well-researched answers about destinations, neighborhoods, culture, safety, budget, best times to visit, things to do, packing tips, visa requirements, and travel logistics. Use rich markdown: headings, bold labels, bullet lists, numbered lists. Aim for 3–6 paragraphs with concrete facts. When the user asks "where should I go" or "best destination for X", give a structured comparison of 3–4 options with pros/cons for each. IMPORTANT: whenever your answer identifies or recommends a specific city, include a "hotel_preview" field so the system can show 3 sample hotels from that city.
    arguments: {
-     text: string              // Rich markdown. Be thorough — this is research mode.
+     text: string,             // Rich markdown. Be thorough — this is research mode.
+     hotel_preview?: {         // Include this when your answer identifies a destination city
+       destination: string,    // city name, e.g. "Rome"
+       countryCode: string     // ISO 3166-1 alpha-2
+     }
    }
 
 2. compare_hotels — Build a side-by-side structured comparison of 2–5 hotels when the user has pinned hotels and asks for comparison.
@@ -546,9 +550,10 @@ ${sharedTools}
 
 Rules:
 ${sharedRules}
-- You are in RESEARCH MODE. Prioritize depth and detail. Use the respond tool for most questions. Only call search_hotels or search_flights when the user explicitly asks to see listings.
+- You are in RESEARCH MODE. Prioritize depth and detail. Use the respond tool for most questions.
 - For weather questions, call get_destination_weather to ground your answer with real forecast data.
 - When suggesting destinations, structure as: brief intro, then a list of 3–4 options each with **Why go**, **Best for**, **Budget level**, **Best time**, and **Watch out for**.
+- IMPORTANT: When your response recommends or discusses a specific city/destination, ALWAYS include "hotel_preview" in your respond arguments with that city. This triggers the system to show 3 sample hotels so the user can see real options. For multi-city comparisons, pick the city you'd recommend most.
 - If 2+ pinned hotels exist and the user asks for a comparison, call compare_hotels.${pinnedBlock}`;
   }
 
@@ -629,10 +634,45 @@ export async function POST(req: Request) {
 
         const result = await (TOOLS as any)[name](args);
 
-        // "respond" is a virtual tool — treat its text as the final
-        // message and skip emitting a tool_result (no UI to render).
+        // "respond" is a virtual tool — text goes as the message.
+        // In research mode, if the model included hotel_preview,
+        // automatically fetch 3 hotels for that city.
         if (name === "respond") {
           emit({ type: "message", text: String(result || "") });
+
+          const preview = args?.hotel_preview;
+          if (
+            preview &&
+            typeof preview.destination === "string" &&
+            typeof preview.countryCode === "string"
+          ) {
+            try {
+              emit({
+                type: "tool_call",
+                name: "search_hotels",
+                args: {
+                  destination: preview.destination,
+                  countryCode: preview.countryCode,
+                  limit: 3,
+                },
+              });
+              const hotels = await TOOLS.search_hotels({
+                destination: preview.destination,
+                countryCode: preview.countryCode,
+                limit: 3,
+              });
+              emit({
+                type: "tool_result",
+                name: "search_hotels",
+                args: {
+                  destination: preview.destination,
+                  countryCode: preview.countryCode,
+                },
+                result: hotels,
+              });
+            } catch {}
+          }
+
           emit({ type: "done" });
           return;
         }
