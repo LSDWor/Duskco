@@ -157,6 +157,13 @@ const LS_CHATS = "duskgo.chats.v1";
 const LS_CURRENT = "duskgo.current.v1";
 const LS_CART = "duskgo.cart.v1";
 const LS_PINNED = "duskgo.pinned.v1";
+const LS_PROFILE = "duskgo.profile.v1";
+
+type UserProfile = {
+  firstName: string;
+  lastName: string;
+  email: string;
+};
 
 const uid = () =>
   typeof crypto !== "undefined" && crypto.randomUUID
@@ -1929,14 +1936,32 @@ function HotelDetailModal({
         </div>
       </div>
 
-      {/* Sticky action bar — single CTA; rooms have their own cart buttons */}
+      {/* Sticky action bar */}
       <div className="fixed inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent pb-4 pt-10">
-        <div className="mx-auto max-w-3xl px-4">
+        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4">
+          {(() => {
+            const wlUrl = buildHotelWLUrl(
+              h.id,
+              details?.search?.checkin,
+              details?.search?.checkout,
+              details?.search?.adults
+            );
+            return wlUrl ? (
+              <a
+                href={wlUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-1 items-center justify-center gap-2 rounded-2xl border py-3.5 text-sm font-medium transition hover:bg-muted"
+              >
+                View on booking site →
+              </a>
+            ) : null;
+          })()}
           <button
             type="button"
             onClick={() => onAddChat(hotel)}
             disabled={pinned}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-sm font-medium text-primary-foreground shadow-lg shadow-black/20 transition hover:opacity-90 disabled:opacity-50"
+            className="flex flex-[1.2] items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-sm font-medium text-primary-foreground shadow-lg shadow-black/20 transition hover:opacity-90 disabled:opacity-50"
           >
             {pinned ? (
               <>
@@ -1962,6 +1987,29 @@ function buildBookingUrl(offerId: string, currency = "USD") {
   url.searchParams.set("offerId", offerId);
   url.searchParams.set("currency", currency);
   url.searchParams.set("language", "en");
+  const p = loadLS<UserProfile | null>(LS_PROFILE, null);
+  if (p?.email) {
+    url.searchParams.set("clientReference", p.email);
+  }
+  return url.toString();
+}
+
+function buildHotelWLUrl(
+  hotelId: string,
+  checkin?: string,
+  checkout?: string,
+  adults = 2
+) {
+  if (!WL_DOMAIN) return null;
+  const url = new URL(`https://${WL_DOMAIN}/hotels/${hotelId}`);
+  if (checkin) url.searchParams.set("checkin", checkin);
+  if (checkout) url.searchParams.set("checkout", checkout);
+  try {
+    url.searchParams.set(
+      "occupancies",
+      btoa(JSON.stringify([{ adults, children: [] }]))
+    );
+  } catch {}
   return url.toString();
 }
 
@@ -2081,6 +2129,163 @@ function RoomRow({
         </div>
       </div>
     </article>
+  );
+}
+
+function ProfileModal({
+  open,
+  onClose,
+  profile,
+  onSave,
+  onSignOut,
+}: {
+  open: boolean;
+  onClose: () => void;
+  profile: UserProfile | null;
+  onSave: (p: UserProfile) => void;
+  onSignOut: () => void;
+}) {
+  const [first, setFirst] = useState(profile?.firstName || "");
+  const [last, setLast] = useState(profile?.lastName || "");
+  const [email, setEmail] = useState(profile?.email || "");
+
+  useEffect(() => {
+    if (open) {
+      setFirst(profile?.firstName || "");
+      setLast(profile?.lastName || "");
+      setEmail(profile?.email || "");
+    }
+  }, [open, profile]);
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const canSave =
+    first.trim().length > 0 &&
+    last.trim().length > 0 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  return (
+    <div className="fixed inset-0 z-50 flex animate-slide-in-bottom flex-col bg-background">
+      <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-muted"
+        >
+          <X />
+        </button>
+        <span className="text-sm font-semibold">
+          {profile ? "Your profile" : "Sign in"}
+        </span>
+      </header>
+
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-4 py-8">
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+            <User className="h-7 w-7 text-muted-foreground" />
+          </div>
+          <h1 className="text-xl font-semibold">
+            {profile
+              ? `${profile.firstName} ${profile.lastName}`
+              : "Create your profile"}
+          </h1>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {profile
+              ? "Your info is used to pre-fill hotel bookings."
+              : "Your name and email will pre-fill checkout when you book a hotel."}
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                First name
+              </label>
+              <input
+                type="text"
+                value={first}
+                onChange={(e) => setFirst(e.target.value)}
+                className="w-full rounded-xl border bg-card px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                placeholder="John"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Last name
+              </label>
+              <input
+                type="text"
+                value={last}
+                onChange={(e) => setLast(e.target.value)}
+                className="w-full rounded-xl border bg-card px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Doe"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-xl border bg-card px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+              placeholder="john@example.com"
+            />
+          </div>
+        </div>
+
+        <div className="mt-8 space-y-3">
+          <button
+            type="button"
+            disabled={!canSave}
+            onClick={() => {
+              onSave({
+                firstName: first.trim(),
+                lastName: last.trim(),
+                email: email.trim(),
+              });
+              onClose();
+            }}
+            className="w-full rounded-2xl bg-primary py-3 text-sm font-medium text-primary-foreground shadow-lg shadow-black/20 transition hover:opacity-90 disabled:opacity-40"
+          >
+            {profile ? "Update profile" : "Save profile"}
+          </button>
+          {profile && (
+            <button
+              type="button"
+              onClick={() => {
+                onSignOut();
+                onClose();
+              }}
+              className="w-full rounded-2xl border py-3 text-sm font-medium text-muted-foreground transition hover:bg-muted"
+            >
+              Sign out
+            </button>
+          )}
+        </div>
+
+        <p className="mt-6 text-center text-[10px] text-muted-foreground">
+          Stored locally in your browser. No account created.
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -2426,6 +2631,8 @@ export default function Home() {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [pinned, setPinned] = useState<Hotel[]>([]);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"research" | "booking">("booking");
@@ -2441,6 +2648,7 @@ export default function Home() {
     setCurrentId(loadLS<string | null>(LS_CURRENT, null));
     setCart(loadLS<CartItem[]>(LS_CART, []));
     setPinned(loadLS<Hotel[]>(LS_PINNED, []));
+    setProfile(loadLS<UserProfile | null>(LS_PROFILE, null));
   }, []);
 
   useEffect(() => {
@@ -2455,6 +2663,9 @@ export default function Home() {
   useEffect(() => {
     saveLS(LS_PINNED, pinned);
   }, [pinned]);
+  useEffect(() => {
+    saveLS(LS_PROFILE, profile);
+  }, [profile]);
 
   const pinnedIds = useMemo(
     () => new Set(pinned.map((h) => h.id)),
@@ -2753,11 +2964,13 @@ export default function Home() {
       <div className="fixed right-4 top-4 z-40 flex items-center gap-2">
         <button
           type="button"
-          onClick={() => alert("Login is a placeholder — wire up NextAuth next.")}
+          onClick={() => setProfileOpen(true)}
           className="flex h-9 items-center gap-1.5 rounded-full border bg-card/90 px-3 text-xs font-medium backdrop-blur transition hover:bg-muted"
         >
           <User />
-          <span className="hidden sm:inline">Sign in</span>
+          <span className="hidden sm:inline">
+            {profile ? profile.firstName : "Sign in"}
+          </span>
         </button>
         <button
           type="button"
@@ -2955,6 +3168,13 @@ export default function Home() {
             cart.filter((c) => c.kind === "room").map((c) => c.id)
           )
         }
+      />
+      <ProfileModal
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        profile={profile}
+        onSave={(p) => setProfile(p)}
+        onSignOut={() => setProfile(null)}
       />
     </main>
   );
