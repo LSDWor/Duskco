@@ -635,9 +635,32 @@ export async function POST(req: Request) {
         const result = await (TOOLS as any)[name](args);
 
         // "respond" is a virtual tool — text goes as the message.
-        // In research mode, if the model included hotel_preview,
-        // automatically fetch 3 hotels for that city.
+        // If pinned hotels exist, include their images for the UI.
         if (name === "respond") {
+          // Collect images from pinned hotels for the UI
+          if (pinned && pinned.length > 0) {
+            const images: { hotelName: string; url: string }[] = [];
+            for (const h of pinned) {
+              if (!h.id) continue;
+              try {
+                const detail = await mcpCall("get_data_hotel", { hotelId: h.id });
+                const raw = detail?.data || detail;
+                const hotelImages: any[] = raw?.hotelImages || [];
+                const top = hotelImages
+                  .slice(0, 4)
+                  .map((img: any) => ({
+                    hotelName: h.name,
+                    url: img.urlHd || img.url,
+                  }))
+                  .filter((i: any) => i.url);
+                images.push(...top);
+              } catch {}
+            }
+            if (images.length > 0) {
+              emit({ type: "images", images: images.slice(0, 8) });
+            }
+          }
+
           emit({ type: "message", text: String(result || "") });
 
           const preview = args?.hotel_preview;

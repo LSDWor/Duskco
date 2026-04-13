@@ -99,6 +99,7 @@ type AssistantMessage = {
       days: WeatherDay[];
     };
   };
+  images?: { hotelName: string; url: string }[];
   message?: string;
   error?: string;
 };
@@ -466,7 +467,7 @@ function saveLS(key: string, val: unknown) {
 
 /* ===================== message sub-components ================ */
 
-function useTypewriter(text: string, charsPerTick = 4, tickMs = 14) {
+function useTypewriter(text: string, done: boolean, charsPerTick = 4, tickMs = 14) {
   const [shown, setShown] = useState(0);
   const prevText = useRef("");
 
@@ -478,12 +479,16 @@ function useTypewriter(text: string, charsPerTick = 4, tickMs = 14) {
   }, [text]);
 
   useEffect(() => {
+    if (done) {
+      setShown(text.length);
+      return;
+    }
     if (!text || shown >= text.length) return;
     const id = setTimeout(() => {
       setShown((s) => Math.min(text.length, s + charsPerTick));
     }, tickMs);
     return () => clearTimeout(id);
-  }, [text, shown, charsPerTick, tickMs]);
+  }, [text, shown, done, charsPerTick, tickMs]);
 
   return shown >= text.length ? text : text.slice(0, shown);
 }
@@ -491,19 +496,21 @@ function useTypewriter(text: string, charsPerTick = 4, tickMs = 14) {
 function ReasoningSection({
   text,
   streaming,
+  done,
 }: {
   text: string;
   streaming: boolean;
+  done: boolean;
 }) {
   const [open, setOpen] = useState(true);
-  const displayed = useTypewriter(text);
+  const displayed = useTypewriter(text, done);
   const fullyRevealed = displayed.length === text.length;
 
   useEffect(() => {
-    if (!streaming && fullyRevealed) setOpen(false);
-  }, [streaming, fullyRevealed]);
+    if (done && fullyRevealed) setOpen(false);
+  }, [done, fullyRevealed]);
 
-  const stillRevealing = streaming || !fullyRevealed;
+  const stillRevealing = !done && (streaming || !fullyRevealed);
 
   return (
     <div className="animate-fade-in">
@@ -1198,6 +1205,7 @@ function AssistantMessageView({
         <ReasoningSection
           text={msg.reasoning}
           streaming={streaming && !msg.toolResult}
+          done={msg.status === "done"}
         />
       )}
 
@@ -1299,8 +1307,32 @@ function AssistantMessageView({
         </div>
       )}
 
+      {msg.images && msg.images.length > 0 && (
+        <div className="no-scrollbar -mx-1 flex animate-fade-in-up gap-2 overflow-x-auto px-1 pb-1">
+          {msg.images.map((img, i) => (
+            <div
+              key={i}
+              className="animate-fade-in-up relative shrink-0 overflow-hidden rounded-xl"
+              style={{ animationDelay: `${i * 60}ms` }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={img.url}
+                alt={img.hotelName}
+                className="h-36 w-48 object-cover"
+              />
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2.5 pb-2 pt-6">
+                <span className="line-clamp-1 text-[10px] font-medium text-white">
+                  {img.hotelName}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {msg.message && (
-        <div className="animate-fade-in space-y-3 text-sm leading-relaxed text-foreground">
+        <div className="animate-fade-in space-y-3 text-sm leading-relaxed text-foreground [&>h1]:mt-4 [&>h1]:text-lg [&>h2]:mt-3 [&>h2]:text-base [&>p]:mt-1 [&>ul]:mt-1 [&>ol]:mt-1">
           {renderMarkdown(msg.message)}
         </div>
       )}
@@ -3368,6 +3400,9 @@ export default function Home() {
               }));
               break;
             }
+            case "images":
+              patch((a) => ({ ...a, images: evt.images }));
+              break;
             case "message":
               patch((a) => ({ ...a, message: evt.text }));
               break;
