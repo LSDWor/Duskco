@@ -2289,6 +2289,200 @@ function ProfileModal({
   );
 }
 
+type BookingRecord = {
+  bookingId: string;
+  status: string;
+  hotelName?: string;
+  hotelConfirmationCode?: string;
+  checkin?: string;
+  checkout?: string;
+  currency?: string;
+  totalPrice?: number;
+  guestName?: string;
+  email?: string;
+  createdAt?: string;
+};
+
+function BookingsModal({
+  open,
+  onClose,
+  profile,
+}: {
+  open: boolean;
+  onClose: () => void;
+  profile: UserProfile | null;
+}) {
+  const [bookings, setBookings] = useState<BookingRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !profile?.email) return;
+    setLoading(true);
+    setError(null);
+    fetch(
+      `/api/bookings?clientReference=${encodeURIComponent(profile.email)}`
+    )
+      .then(async (r) => {
+        const json = await r.json();
+        if (json.error) setError(json.error);
+        setBookings(json.bookings || []);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [open, profile?.email]);
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const manageUrl = (b: BookingRecord) => {
+    if (!WL_DOMAIN || !b.bookingId) return null;
+    const url = new URL(
+      `https://${WL_DOMAIN}/manage-bookings/${b.bookingId}`
+    );
+    if (b.email) url.searchParams.set("email", b.email);
+    return url.toString();
+  };
+
+  const statusColor = (s: string) => {
+    if (/confirm|active/i.test(s))
+      return "bg-green-500/10 text-green-600 dark:text-green-400";
+    if (/cancel/i.test(s))
+      return "bg-red-500/10 text-red-500";
+    if (/pending/i.test(s))
+      return "bg-amber-500/10 text-amber-600 dark:text-amber-400";
+    return "bg-muted text-muted-foreground";
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex animate-slide-in-bottom flex-col bg-background">
+      <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-muted"
+        >
+          <X />
+        </button>
+        <span className="text-sm font-semibold">My Bookings</span>
+      </header>
+
+      <div className="flex-1 overflow-y-auto">
+        {!profile && (
+          <div className="p-16 text-center text-sm text-muted-foreground">
+            Sign in to see your bookings.
+          </div>
+        )}
+
+        {profile && loading && (
+          <div className="space-y-3 p-4">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="skeleton h-24 rounded-xl"
+                style={{ animationDelay: `${i * 100}ms` }}
+              />
+            ))}
+          </div>
+        )}
+
+        {profile && !loading && error && (
+          <div className="p-4">
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-600 dark:text-red-300">
+              {error}
+            </div>
+          </div>
+        )}
+
+        {profile && !loading && !error && bookings.length === 0 && (
+          <div className="flex flex-col items-center gap-3 p-16 text-center">
+            <Bed className="h-10 w-10 text-muted-foreground/30" />
+            <div className="text-sm text-muted-foreground">
+              No bookings found for {profile.email}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Bookings made via the "Book now" button will appear here.
+            </div>
+          </div>
+        )}
+
+        {profile && !loading && bookings.length > 0 && (
+          <ul className="mx-auto max-w-2xl divide-y">
+            {bookings.map((b, i) => {
+              const link = manageUrl(b);
+              return (
+                <li
+                  key={b.bookingId || i}
+                  className="animate-fade-in-up p-4"
+                  style={{ animationDelay: `${i * 40}ms` }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="truncate text-sm font-semibold">
+                          {b.hotelName || `Booking ${b.bookingId}`}
+                        </h3>
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${statusColor(
+                            b.status
+                          )}`}
+                        >
+                          {b.status}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        {b.checkin && b.checkout && (
+                          <span>
+                            {formatDateRange(b.checkin, b.checkout)}
+                          </span>
+                        )}
+                        {b.guestName && <span>{b.guestName}</span>}
+                        {b.hotelConfirmationCode && (
+                          <span className="font-mono">
+                            #{b.hotelConfirmationCode}
+                          </span>
+                        )}
+                      </div>
+                      {typeof b.totalPrice === "number" && (
+                        <div className="mt-1 text-sm font-semibold">
+                          {formatPrice(b.totalPrice, b.currency)}
+                        </div>
+                      )}
+                    </div>
+                    {link && (
+                      <a
+                        href={link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition hover:bg-muted"
+                      >
+                        Manage →
+                      </a>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CartModal({
   open,
   onClose,
@@ -2637,6 +2831,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"research" | "booking">("booking");
   const [cartOpen, setCartOpen] = useState(false);
+  const [bookingsOpen, setBookingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [detailHotel, setDetailHotel] = useState<Hotel | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -2972,6 +3167,16 @@ export default function Home() {
             {profile ? profile.firstName : "Sign in"}
           </span>
         </button>
+        {profile && (
+          <button
+            type="button"
+            onClick={() => setBookingsOpen(true)}
+            className="flex h-9 items-center gap-1.5 rounded-full border bg-card/90 px-3 text-xs font-medium backdrop-blur transition hover:bg-muted"
+          >
+            <Bed />
+            <span className="hidden sm:inline">Bookings</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setCartOpen(true)}
@@ -3175,6 +3380,11 @@ export default function Home() {
         profile={profile}
         onSave={(p) => setProfile(p)}
         onSignOut={() => setProfile(null)}
+      />
+      <BookingsModal
+        open={bookingsOpen}
+        onClose={() => setBookingsOpen(false)}
+        profile={profile}
       />
     </main>
   );
