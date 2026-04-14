@@ -492,6 +492,9 @@ function buildSystemPrompt(pinned?: PinnedHotel[], mode?: string) {
    arguments: {
      destination: string,       // city name, e.g. "Paris"
      countryCode: string,       // ISO 3166-1 alpha-2, e.g. "FR"
+     checkin?: string,          // YYYY-MM-DD if the user mentioned dates
+     checkout?: string,         // YYYY-MM-DD
+     adults?: integer,          // number of adults if mentioned (default 2)
      limit?: integer            // max 20
    }
 
