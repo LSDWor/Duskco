@@ -947,10 +947,10 @@ function FlightCard({
 
 /* weather helper icons */
 function weatherIcon(cloud?: number, precip?: number) {
-  if (precip != null && precip > 5) return "🌧";
-  if (cloud != null && cloud > 70) return "☁️";
-  if (cloud != null && cloud > 30) return "⛅";
-  return "☀️";
+  if (precip != null && precip > 5) return "Rain";
+  if (cloud != null && cloud > 70) return "Cloudy";
+  if (cloud != null && cloud > 30) return "Partly";
+  return "Clear";
 }
 
 function WeatherStrip({ days }: { days: WeatherDay[] }) {
@@ -987,7 +987,7 @@ function WeatherStrip({ days }: { days: WeatherDay[] }) {
                 {fmtDay(d.date)}
               </div>
               <div className="mt-3 flex items-end justify-between">
-                <span className="text-3xl leading-none">{icon}</span>
+                <span className="text-xs font-semibold text-muted-foreground">{icon}</span>
                 <div className="text-right">
                   <div className="text-lg font-bold tabular-nums leading-tight">
                     {typeof d.tempMax === "number"
@@ -1005,12 +1005,12 @@ function WeatherStrip({ days }: { days: WeatherDay[] }) {
               <div className="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
                 {typeof d.humidity === "number" && (
                   <span className="flex items-center gap-1">
-                    💧 {Math.round(d.humidity)}%
+                    Humidity {Math.round(d.humidity)}%
                   </span>
                 )}
                 {typeof d.windSpeed === "number" && (
                   <span className="flex items-center gap-1">
-                    💨 {d.windSpeed.toFixed(0)} mph
+                    Wind {d.windSpeed.toFixed(0)} mph
                   </span>
                 )}
               </div>
@@ -1492,10 +1492,10 @@ type DetailPayload = {
 };
 
 const POI_CATEGORIES = [
-  { key: "attraction" as const, label: "Attractions", icon: "📍", bg: "bg-blue-500/10" },
-  { key: "historic" as const, label: "Historic", icon: "🏛", bg: "bg-purple-500/10" },
-  { key: "dining" as const, label: "Dining", icon: "🍽", bg: "bg-orange-500/10" },
-  { key: "park" as const, label: "Parks", icon: "🌳", bg: "bg-green-500/10" },
+  { key: "attraction" as const, label: "Attractions", bg: "bg-blue-500/10" },
+  { key: "historic" as const, label: "Historic", bg: "bg-purple-500/10" },
+  { key: "dining" as const, label: "Dining", bg: "bg-orange-500/10" },
+  { key: "park" as const, label: "Parks", bg: "bg-green-500/10" },
 ];
 
 function formatDistanceUS(m?: number) {
@@ -1523,8 +1523,8 @@ function NearbyPOIs({
         if (items.length === 0) return null;
         return (
           <div key={cat.key}>
-            <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <span>{cat.icon}</span> {cat.label}
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {cat.label}
             </h3>
             <div className="grid gap-2 sm:grid-cols-2">
               {items.map((poi, i) => {
@@ -1536,9 +1536,9 @@ function NearbyPOIs({
                     style={{ animationDelay: `${i * 40}ms` }}
                   >
                     <div
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg ${cat.bg}`}
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${cat.bg}`}
                     >
-                      {cat.icon}
+                      <SearchIcon />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">
@@ -2061,28 +2061,33 @@ function HotelDetailModal({
             <WeatherStrip days={details.weather} />
           )}
 
-          {/* Amenities */}
+          {/* Amenities accordion */}
           {h.facilities.length > 0 && (
             <section className="mt-10 animate-fade-in-up">
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Amenities ({h.facilities.length})
-              </h2>
-              <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
-                {h.facilities.slice(0, 30).map((f, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-2 text-xs text-foreground/80"
-                  >
-                    <Check className="shrink-0 text-muted-foreground" />
-                    <span className="truncate">{f.name}</span>
+              <details className="group rounded-2xl border bg-card">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4">
+                  <h2 className="text-sm font-semibold">
+                    Amenities
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      {h.facilities.length}
+                    </span>
+                  </h2>
+                  <Chevron className="text-muted-foreground transition-transform group-open:rotate-90" />
+                </summary>
+                <div className="border-t px-5 pb-4 pt-3">
+                  <div className="grid gap-1.5 sm:grid-cols-2 md:grid-cols-3">
+                    {h.facilities.map((f, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 text-xs text-foreground/80"
+                      >
+                        <Check className="shrink-0 text-muted-foreground" />
+                        <span className="truncate">{f.name}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              {h.facilities.length > 30 && (
-                <div className="mt-2 text-xs text-muted-foreground">
-                  + {h.facilities.length - 30} more
                 </div>
-              )}
+              </details>
             </section>
           )}
 
@@ -2823,25 +2828,18 @@ function TripModal({
             {activities.length > 0 && (
               <section className="mb-8 animate-fade-in-up">
                 <h2 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  📍 Activities ({activities.length})
+                  <SearchIcon /> Activities ({activities.length})
                 </h2>
                 <div className="space-y-2">
                   {activities.map((item) => {
-                    const icon =
-                      item.category === "dining"
-                        ? "🍽"
-                        : item.category === "park"
-                        ? "🌳"
-                        : item.category === "historic"
-                        ? "🏛"
-                        : "📍";
+                    const _cat = item.category;
                     return (
                       <div
                         key={item.id}
                         className="flex items-center gap-3 rounded-xl border bg-card p-3"
                       >
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-lg">
-                          {icon}
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                          <SearchIcon />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-semibold">
