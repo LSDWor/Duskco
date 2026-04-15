@@ -1505,6 +1505,19 @@ function formatDistanceUS(m?: number) {
     : `${(m / 1609.34).toFixed(1)}mi`;
 }
 
+function poiIcon(category: string) {
+  switch (category) {
+    case "dining":
+      return <Bed />;
+    case "park":
+      return <Star />;
+    case "historic":
+      return <SearchIcon />;
+    default:
+      return <SearchIcon />;
+  }
+}
+
 function NearbyPOIs({
   pois,
   hotelName,
@@ -1517,34 +1530,33 @@ function NearbyPOIs({
   onAddActivity: (poi: POI, hotelName?: string) => void;
 }) {
   return (
-    <div className="mt-5 space-y-5 animate-fade-in-up">
+    <div className="mt-6 space-y-6">
       {POI_CATEGORIES.map((cat) => {
         const items = pois.filter((p) => p.category === cat.key);
         if (items.length === 0) return null;
         return (
           <div key={cat.key}>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/60">
               {cat.label}
             </h3>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               {items.map((poi, i) => {
                 const saved = activityIds.has(`activity::${poi.name}`);
                 return (
                   <div
                     key={i}
-                    className="animate-fade-in-up group flex items-center gap-3 rounded-2xl border bg-card p-3 transition hover:shadow-md"
-                    style={{ animationDelay: `${i * 40}ms` }}
+                    className="group flex items-center gap-3 rounded-2xl border bg-card p-4 transition hover:shadow-md"
                   >
                     <div
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${cat.bg}`}
+                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-foreground/60 ${cat.bg}`}
                     >
-                      <SearchIcon />
+                      {poiIcon(cat.key)}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">
+                      <div className="truncate text-sm font-semibold">
                         {poi.name}
                       </div>
-                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <div className="mt-0.5 flex items-center gap-2 text-xs text-foreground/50">
                         <span className="capitalize">{poi.type}</span>
                         {typeof poi.distance === "number" && (
                           <>
@@ -1558,7 +1570,7 @@ function NearbyPOIs({
                       type="button"
                       onClick={() => onAddActivity(poi, hotelName)}
                       disabled={saved}
-                      className="flex h-8 shrink-0 items-center gap-1 rounded-full border bg-background px-2.5 text-[11px] font-medium transition hover:bg-muted disabled:opacity-60"
+                      className="flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-4 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
                     >
                       {saved ? (
                         <>
@@ -1566,7 +1578,7 @@ function NearbyPOIs({
                         </>
                       ) : (
                         <>
-                          <Plus /> Trip
+                          <Plus /> Add to trip
                         </>
                       )}
                     </button>
