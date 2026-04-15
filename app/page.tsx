@@ -100,6 +100,8 @@ type AssistantMessage = {
     };
   };
   images?: { hotelName: string; url: string }[];
+  suggestCities?: { name: string; countryCode: string; description: string; bestFor: string }[];
+  followUpQuestions?: string[];
   message?: string;
   error?: string;
 };
@@ -150,18 +152,11 @@ type CartItem = CartHotelItem | CartFlightItem | CartRoomItem | CartActivityItem
 
 type ApiMessage = { role: "user" | "assistant"; content: string };
 
-const BOOKING_SUGGESTIONS = [
-  "3 nights in Paris for 2 people in early June",
-  "Flights from NYC to Tokyo next month",
-  "Beach hotel in Bali for a week",
-  "Hotels in Rome for 5 days in July",
-];
-
-const RESEARCH_SUGGESTIONS = [
-  "Best European cities for a first-time couple's trip?",
-  "What's the weather like in Bali in August?",
-  "Is Barcelona or Rome better for food lovers?",
-  "Safest neighborhoods to stay in Mexico City",
+const SUGGESTIONS = [
+  "Best beach destinations for a couple in June",
+  "Hotels in Paris near the Eiffel Tower",
+  "Where should I go for a food trip in Asia?",
+  "3 nights in Rome for 2 adults",
 ];
 
 const LS_CHATS = "duskgo.chats.v1";
@@ -1201,6 +1196,8 @@ function AssistantMessageView({
   onAddHotelChat,
   onAddFlight,
   onOpenHotel,
+  onCityClick,
+  onFollowUp,
 }: {
   msg: AssistantMessage;
   cart: CartItem[];
@@ -1208,6 +1205,8 @@ function AssistantMessageView({
   onAddHotelChat: (h: Hotel) => void;
   onAddFlight: (f: Flight) => void;
   onOpenHotel: (h: Hotel) => void;
+  onCityClick: (city: string, countryCode: string) => void;
+  onFollowUp: (question: string) => void;
 }) {
   const streaming = msg.status === "streaming";
   const toolStatus: "running" | "done" | "error" = msg.error
@@ -1355,6 +1354,52 @@ function AssistantMessageView({
       {msg.message && (
         <div className="animate-fade-in space-y-3 text-sm leading-relaxed text-foreground [&>h1]:mt-4 [&>h1]:text-lg [&>h2]:mt-3 [&>h2]:text-base [&>p]:mt-1 [&>ul]:mt-1 [&>ol]:mt-1">
           {renderMarkdown(msg.message)}
+        </div>
+      )}
+
+      {/* City suggestion cards */}
+      {msg.suggestCities && msg.suggestCities.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {msg.suggestCities.map((city, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onCityClick(city.name, city.countryCode)}
+              className="group rounded-2xl border bg-card p-4 text-left transition hover:shadow-md"
+            >
+              <div className="text-sm font-semibold">{city.name}</div>
+              <div className="mt-0.5 text-xs text-foreground/50">
+                {city.countryCode}
+              </div>
+              <p className="mt-2 line-clamp-2 text-xs text-foreground/70">
+                {city.description}
+              </p>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-foreground/60">
+                  {city.bestFor}
+                </span>
+                <span className="text-xs text-foreground/40 transition group-hover:text-foreground">
+                  View hotels →
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Follow-up question buttons */}
+      {msg.followUpQuestions && msg.followUpQuestions.length > 0 && msg.status === "done" && (
+        <div className="flex flex-wrap gap-2">
+          {msg.followUpQuestions.map((q, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onFollowUp(q)}
+              className="rounded-full border bg-card px-4 py-2 text-xs text-foreground/70 transition hover:bg-muted hover:text-foreground"
+            >
+              {q}
+            </button>
+          ))}
         </div>
       )}
 
@@ -3356,13 +3401,11 @@ type InputCardProps = {
   loading: boolean;
   autosize: (el: HTMLTextAreaElement) => void;
   placeholder?: string;
-  mode: "research" | "booking";
-  onToggleMode: () => void;
 };
 
 const InputCard = forwardRef<HTMLTextAreaElement, InputCardProps>(
   function InputCard(
-    { query, setQuery, onKeyDown, loading, autosize, placeholder, mode, onToggleMode },
+    { query, setQuery, onKeyDown, loading, autosize, placeholder },
     ref
   ) {
     return (
@@ -3375,24 +3418,10 @@ const InputCard = forwardRef<HTMLTextAreaElement, InputCardProps>(
             autosize(e.currentTarget);
           }}
           onKeyDown={onKeyDown}
-          placeholder={placeholder || "Ask for hotels, flights, or a whole trip…"}
+          placeholder={placeholder || "Where do you want to go?"}
           rows={1}
-          className="block w-full resize-none rounded-3xl bg-transparent px-5 pb-11 pt-4 pr-14 text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none"
+          className="block w-full resize-none rounded-3xl bg-transparent px-5 py-4 pr-14 text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none"
         />
-        <div className="absolute bottom-2.5 left-3 flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={onToggleMode}
-            className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-              mode === "research"
-                ? "bg-blue-500/15 text-blue-600 ring-1 ring-blue-500/30 dark:text-blue-400"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            }`}
-          >
-            <SearchIcon />
-            Research
-          </button>
-        </div>
         <button
           type="submit"
           disabled={loading || !query.trim()}
@@ -3500,7 +3529,6 @@ export default function Home() {
   const [dates, setDates] = useState<{ checkin: string; checkout: string } | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"research" | "booking">("booking");
   const [cartOpen, setCartOpen] = useState(false);
   const [bookingsOpen, setBookingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -3698,7 +3726,7 @@ export default function Home() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, pinned: pinnedPayload, mode }),
+        body: JSON.stringify({ messages: history, pinned: pinnedPayload }),
       });
       if (!res.body) throw new Error("No response body");
 
@@ -3760,6 +3788,15 @@ export default function Home() {
             }
             case "images":
               patch((a) => ({ ...a, images: evt.images }));
+              break;
+            case "suggest_cities":
+              patch((a) => ({ ...a, suggestCities: evt.cities }));
+              break;
+            case "follow_up_questions":
+              patch((a) => ({
+                ...a,
+                followUpQuestions: evt.questions,
+              }));
               break;
             case "message":
               patch((a) => ({ ...a, message: evt.text }));
@@ -3930,29 +3967,12 @@ export default function Home() {
       {!hasMessages && (
         <section className="flex flex-1 flex-col items-center justify-center pb-24">
           <div className="mb-8 text-center">
-            {mode === "research" ? (
-              <>
-                <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-blue-500/15 px-3 py-1 text-xs font-medium text-blue-600 dark:text-blue-400">
-                  <SearchIcon /> Research Mode
-                </div>
-                <h1 className="text-balance text-3xl font-semibold tracking-tight md:text-4xl">
-                  Explore before you book
-                </h1>
-                <p className="mt-3 text-sm text-muted-foreground md:text-base">
-                  Ask about destinations, weather, neighborhoods, budgets — get
-                  thorough research before deciding.
-                </p>
-              </>
-            ) : (
-              <>
-                <h1 className="text-balance text-3xl font-semibold tracking-tight md:text-4xl">
-                  Where to next?
-                </h1>
-                <p className="mt-3 text-sm text-muted-foreground md:text-base">
-                  Describe your trip. Search hotels, flights, and compare options.
-                </p>
-              </>
-            )}
+            <h1 className="text-balance text-3xl font-semibold tracking-tight md:text-4xl">
+              Where to next?
+            </h1>
+            <p className="mt-3 text-sm text-foreground/60 md:text-base">
+              Ask about destinations, search hotels, or explore ideas.
+            </p>
           </div>
 
           <form onSubmit={onSubmit} className="w-full">
@@ -3964,29 +3984,16 @@ export default function Home() {
               onKeyDown={onKeyDown}
               loading={loading}
               autosize={autosize}
-              mode={mode}
-              onToggleMode={() =>
-                setMode((m) => (m === "research" ? "booking" : "research"))
-              }
-              placeholder={
-                mode === "research"
-                  ? "Ask about destinations, weather, budget, safety…"
-                  : "Search hotels, flights, or describe your trip…"
-              }
             />
           </form>
 
           <CyclingSuggestion
-            items={
-              mode === "research"
-                ? RESEARCH_SUGGESTIONS
-                : BOOKING_SUGGESTIONS
-            }
+            items={SUGGESTIONS}
             onSelect={(s) => runChat(s)}
           />
 
           <div className="mt-4 flex flex-wrap justify-center gap-2">
-            {(mode === "research" ? RESEARCH_SUGGESTIONS : BOOKING_SUGGESTIONS).map((s) => (
+            {SUGGESTIONS.map((s) => (
               <button
                 key={s}
                 onClick={() => runChat(s)}
@@ -4028,6 +4035,10 @@ export default function Home() {
                     onAddHotelChat={pinHotel}
                     onAddFlight={addFlightToCart}
                     onOpenHotel={setDetailHotel}
+                    onCityClick={(city, cc) =>
+                      runChat(`Hotels in ${city}`)
+                    }
+                    onFollowUp={(q) => runChat(q)}
                   />
                 )
               )}
@@ -4047,12 +4058,6 @@ export default function Home() {
                   onKeyDown={onKeyDown}
                   loading={loading}
                   autosize={autosize}
-                  mode={mode}
-                  onToggleMode={() =>
-                    setMode((m) =>
-                      m === "research" ? "booking" : "research"
-                    )
-                  }
                 />
               </div>
             </form>

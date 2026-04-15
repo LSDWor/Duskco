@@ -454,7 +454,7 @@ function extractJson(raw: string): any {
 
 /* -------------------------- system prompt ------------------------- */
 
-function buildSystemPrompt(pinned?: PinnedHotel[], mode?: string) {
+function buildSystemPrompt(pinned?: PinnedHotel[]) {
   const pinnedBlock =
     pinned && pinned.length > 0
       ? `\n\nThe user has pinned these hotels to the conversation for reference. Use them when answering comparison, questions, or "which is better" prompts — don't re-search unless the user asks for new options:\n${pinned
@@ -487,105 +487,65 @@ function buildSystemPrompt(pinned?: PinnedHotel[], mode?: string) {
   }
 }`;
 
-  const sharedTools = `
-3. search_hotels — Search hotels in a city. Use when the user asks about hotels, stays, or a place to stay and wants NEW options.
-   arguments: {
-     destination: string,       // city name, e.g. "Paris"
-     countryCode: string,       // ISO 3166-1 alpha-2, e.g. "FR"
-     checkin?: string,          // YYYY-MM-DD if the user mentioned dates
-     checkout?: string,         // YYYY-MM-DD
-     adults?: integer,          // number of adults if mentioned (default 2)
-     limit?: integer            // max 20
-   }
+  return `You are Duskgo, an AI travel concierge. You help users discover destinations, find hotels, compare options, and plan trips. You detect user intent automatically:
 
-4. get_hotel_details — Get full details for one hotel by ID. Use only when you need deeper info on a specific hotel and don't already have it from pinned context or prior results.
-   arguments: {
-     hotelId: string            // e.g. "lp1beec"
-   }
-
-5. search_flights — Search flights between two airports. Use when the user asks about flights, airfare, or getting to a destination.
-   arguments: {
-     origin: string,            // 3-letter IATA airport code, e.g. "JFK"
-     destination: string,       // 3-letter IATA airport code, e.g. "CDG"
-     departureDate: string,     // YYYY-MM-DD
-     returnDate?: string,       // YYYY-MM-DD for round trips; omit for one-way
-     adults: integer,           // default 1
-     cabinClass?: string,       // "ECONOMY" | "PREMIUM_ECONOMY" | "BUSINESS" | "FIRST"
-     currency?: string          // ISO 4217, default "USD"
-   }
-
-6. get_destination_weather — Get weather forecast for a city. Use when the user asks about weather, climate, best time to visit, or what to pack.
-   arguments: {
-     city: string,              // FULL city name, e.g. "Bali", "Paris", "New York" — NOT abbreviations
-     countryCode: string,       // ISO 3166-1 alpha-2
-     startDate?: string,        // YYYY-MM-DD, defaults to today
-     endDate?: string           // YYYY-MM-DD, defaults to today+6
-   }`;
-
-  const sharedRules = `
-- Today is ${todayISO(0)}. If dates are vague ("next month", "in June"), pick sensible concrete future dates.
-- If only duration is given, assume check-in 30 days from today.
-- For flights, YOU must pick the correct 3-letter IATA airport codes — use the most common primary airport for each city (Paris→CDG, New York→JFK, London→LHR, Tokyo→HND, Los Angeles→LAX, Singapore→SIN).
-- ALWAYS include a tool_call. If ambiguous, make your best guess and explain it in "reasoning".
-- Output ONLY the JSON object. No explanations outside the JSON.`;
-
-  if (mode === "research") {
-    return `You are Duskgo in **Research Mode** — a thorough AI travel research assistant. The user is exploring destinations, comparing cities, checking weather, and gathering information BEFORE deciding where to book. Your job is to provide detailed, analytical, well-structured research — not quick summaries.
+- **Exploring / researching** (e.g. "best beaches", "where should I go in Europe", "romantic getaway ideas") → use respond with suggest_cities
+- **Ready to book** (e.g. "hotels in Rome", "find me a place in Paris") → use search_hotels
+- **Asking about a specific pinned hotel** → use respond
+- **Comparing pinned hotels** → use compare_hotels
 
 ${envelope}
 
 Available tools:
 
-1. respond — Your PRIMARY tool in research mode. Give thorough, well-researched answers about destinations, neighborhoods, culture, safety, budget, best times to visit, things to do, packing tips, visa requirements, and travel logistics. Use rich markdown: headings, bold labels, bullet lists, numbered lists. Aim for 3–6 paragraphs with concrete facts. When the user asks "where should I go" or "best destination for X", give a structured comparison of 3–4 options with pros/cons for each. IMPORTANT: whenever your answer identifies or recommends a specific city, include a "hotel_preview" field so the system can show 3 sample hotels from that city.
+1. respond — Answer with natural-language text. EVERY respond call MUST include one of these in the arguments:
+   - "suggest_cities": array of exactly 3 city objects when your answer discusses destinations, areas, or travel research. Each city: {name, countryCode, description (1 sentence), bestFor (1-3 words)}
+   - "follow_up_questions": array of exactly 3 short follow-up questions the user might ask next, to keep the conversation going
+   - "hotel_preview": {destination, countryCode} when discussing a single specific city and hotels should be shown
+   One of these three MUST always be present. Never return respond without at least one.
    arguments: {
-     text: string,             // Rich markdown. Be thorough — this is research mode.
-     hotel_preview?: {         // Include this when your answer identifies a destination city
-       destination: string,    // city name, e.g. "Rome"
-       countryCode: string     // ISO 3166-1 alpha-2
-     }
+     text: string,                // Markdown. Use **bold labels**, bullets, concise paragraphs.
+     suggest_cities?: [{name: string, countryCode: string, description: string, bestFor: string}],
+     follow_up_questions?: [string, string, string],
+     hotel_preview?: {destination: string, countryCode: string}
    }
 
-2. compare_hotels — Build a side-by-side structured comparison of 2–5 hotels when the user has pinned hotels and asks for comparison.
+2. compare_hotels — Side-by-side comparison of 2–5 pinned hotels. Use when user asks to compare, contrast, or pick between pinned hotels.
+   arguments: { hotelIds: string[] }
+
+3. search_hotels — Search hotels in a specific city. Use when the user names a city and wants hotel listings.
    arguments: {
-     hotelIds: string[]
+     destination: string, countryCode: string,
+     checkin?: string, checkout?: string, adults?: integer, limit?: integer
    }
-${sharedTools}
+
+4. get_hotel_details — Full details for one hotel by ID.
+   arguments: { hotelId: string }
+
+5. search_flights — Search flights between airports.
+   arguments: {
+     origin: string, destination: string, departureDate: string,
+     returnDate?: string, adults: integer, cabinClass?: string, currency?: string
+   }
+
+6. get_destination_weather — Weather forecast for a city.
+   arguments: { city: string, countryCode: string, startDate?: string, endDate?: string }
 
 Rules:
-${sharedRules}
-- You are in RESEARCH MODE. Prioritize depth and detail. Use the respond tool for most questions.
-- For weather questions, call get_destination_weather to ground your answer with real forecast data.
-- When suggesting destinations, structure as: brief intro, then a list of 3–4 options each with **Why go**, **Best for**, **Budget level**, **Best time**, and **Watch out for**.
-- IMPORTANT: When your response recommends or discusses a specific city/destination, ALWAYS include "hotel_preview" in your respond arguments with that city. This triggers the system to show 3 sample hotels so the user can see real options. For multi-city comparisons, pick the city you'd recommend most.
-- If 2+ pinned hotels exist and the user asks for a comparison, call compare_hotels.${pinnedBlock}`;
-  }
-
-  return `You are Duskgo, an AI travel concierge with access to real travel inventory via the LiteAPI MCP server. The user chats with you in natural language.
-
-${envelope}
-
-Available tools:
-
-1. respond — Answer the user directly with natural-language text. Use this when the user is asking a question, requesting hotel details they've pinned, seeking advice, or the answer can be composed from conversation context without a fresh data lookup. This is the default when the user has pinned hotels and is asking about them (except comparisons — see #2).
-   arguments: {
-     text: string              // Markdown. Structure answers with short headings or **bold labels**, concise bullet lists (- ...), and 1–2 sentence paragraphs. Always include concrete facts from the pinned context (location, star rating, review score, standout features). Avoid generic filler. For "tell me about <hotel>" prompts, structure as: 1-sentence headline, then bullets covering Vibe, Best for, Standout features, and any caveats from cons.
-   }
-
-2. compare_hotels — Build a side-by-side structured comparison of 2–5 hotels. USE THIS (not respond) when the user asks to "compare", "contrast", "side by side", "which is better", "differences", "vs", or similar, AND there are 2+ pinned hotels available. The client renders the result as a real comparison table.
-   arguments: {
-     hotelIds: string[]        // 2–5 hotel IDs drawn from the pinned context (each pinned hotel has an [id:...] tag below)
-   }
-${sharedTools}
-
-Rules:
-${sharedRules}
-- If 2+ pinned hotels exist and the user asks for a comparison or "which is better", call compare_hotels with their IDs. For single-hotel questions or non-comparison prompts about pinned hotels, call respond. Do NOT call search_hotels unless the user explicitly asks for new options.${pinnedBlock}`;
+- Today is ${todayISO(0)}. Convert vague dates to concrete future dates.
+- For flights, use common IATA codes (Paris→CDG, NYC→JFK, London→LHR, Tokyo→HND).
+- ALWAYS include a tool_call.
+- CRITICAL: Every respond call MUST include suggest_cities OR follow_up_questions OR hotel_preview. The client renders these as interactive cards/buttons. Never leave the user at a dead end.
+- When the user asks about beaches, activities, neighborhoods, or points of interest, include suggest_cities with 3 nearby cities where they can find hotels.
+- When the user asks about a pinned hotel, use respond with follow_up_questions.
+- If 2+ pinned hotels exist and user asks to compare, use compare_hotels.
+- Output ONLY the JSON object.${pinnedBlock}`;
 }
 
 /* ------------------------------ route ----------------------------- */
 
 export async function POST(req: Request) {
-  let body: { messages?: ChatMessage[]; pinned?: PinnedHotel[]; mode?: string };
+  let body: { messages?: ChatMessage[]; pinned?: PinnedHotel[] };
   try {
     body = await req.json();
   } catch {
@@ -593,7 +553,6 @@ export async function POST(req: Request) {
   }
   const messages = body.messages;
   const pinned = Array.isArray(body.pinned) ? body.pinned : undefined;
-  const mode = body.mode === "research" ? "research" : "booking";
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: "messages[] required" }, { status: 400 });
   }
@@ -609,7 +568,7 @@ export async function POST(req: Request) {
         await sleep(80);
 
         const llmMessages: ChatMessage[] = [
-          { role: "system", content: buildSystemPrompt(pinned, mode) },
+          { role: "system", content: buildSystemPrompt(pinned) },
           ...messages.filter(
             (m) => m.role === "user" || m.role === "assistant"
           ),
@@ -637,9 +596,20 @@ export async function POST(req: Request) {
 
         const result = await (TOOLS as any)[name](args);
 
-        // "respond" is a virtual tool — text goes as the message.
-        // If pinned hotels exist, include their images for the UI.
+        // "respond" is a virtual tool — text + interactive elements.
         if (name === "respond") {
+          // Emit suggest_cities if present
+          const cities = args?.suggest_cities;
+          if (Array.isArray(cities) && cities.length > 0) {
+            emit({ type: "suggest_cities", cities: cities.slice(0, 3) });
+          }
+
+          // Emit follow_up_questions if present
+          const questions = args?.follow_up_questions;
+          if (Array.isArray(questions) && questions.length > 0) {
+            emit({ type: "follow_up_questions", questions: questions.slice(0, 3) });
+          }
+
           // Collect images from pinned hotels for the UI
           if (pinned && pinned.length > 0) {
             const images: { hotelName: string; url: string }[] = [];
@@ -666,6 +636,7 @@ export async function POST(req: Request) {
 
           emit({ type: "message", text: String(result || "") });
 
+          // Auto-fetch 3 hotels if hotel_preview is present
           const preview = args?.hotel_preview;
           if (
             preview &&
